@@ -12,18 +12,36 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Button, 
   Card, 
-  CardBody, 
-  CardHeader,
-  Input, 
+  TextInput, 
   Slider, 
   Chip,
   Progress,
   Checkbox,
   Divider,
-  Link,
-  Spinner
-} from '@heroui/react';
+  Anchor as Link,
+  Loader as Spinner,
+  Text,
+  Group,
+  Stack,
+  Title,
+  Container,
+  Grid,
+  Paper,
+  Select,
+  NumberInput,
+  Tabs,
+  List,
+  Code,
+  Alert,
+  ScrollArea,
+  Box,
+  Center,
+  RangeSlider,
+  Collapse,
+  Accordion
+} from '@mantine/core';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 
 // -------------------- Utility: Tiny helpers --------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -35,9 +53,14 @@ const chunk = (arr, size) => {
 const uniq = (arr) => Array.from(new Set(arr));
 
 // -------------------- Google Gemini BPM Utility with Three-Tier Grounding --------------------
-async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog = null) {
+async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog = null, abortSignal = null) {
   if (!geminiApiKey) {
     throw new Error("Gemini API key is required");
+  }
+
+  // Check if request was cancelled before starting
+  if (abortSignal?.aborted) {
+    throw new Error("Request cancelled before starting");
   }
 
   const genAI = new GoogleGenerativeAI(geminiApiKey);
@@ -105,6 +128,11 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
   try {
     console.log(`🥇 Trying PRIMARY (gemini-2.5-flash-lite) for "${title}" by ${artist}`);
     
+    // Check for cancellation before each tier
+    if (abortSignal?.aborted) {
+      throw new Error("Request cancelled during PRIMARY tier");
+    }
+    
     const primaryModel = genAI.getGenerativeModel({ 
       model: "gemini-2.5-flash-lite",
       generationConfig: {
@@ -115,6 +143,12 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
     });
 
     const primaryResult = await primaryModel.generateContent(basePrompt);
+    
+    // Check for cancellation after API call
+    if (abortSignal?.aborted) {
+      throw new Error("Request cancelled after PRIMARY API call");
+    }
+    
     const { bpmText, bpm, sources, searchQueries } = extractBPMData(primaryResult, "gemini-2.5-flash-lite", "PRIMARY");
 
     // Add to UI log
@@ -146,6 +180,11 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
   try {
     console.log(`🥈 Trying SECONDARY (gemini-2.0-flash) for "${title}" by ${artist}`);
     
+    // Check for cancellation before secondary tier
+    if (abortSignal?.aborted) {
+      throw new Error("Request cancelled during SECONDARY tier");
+    }
+    
     const secondaryModel = genAI.getGenerativeModel({ 
       model: "gemini-2.0-flash",
       generationConfig: {
@@ -156,6 +195,12 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
     });
 
     const secondaryResult = await secondaryModel.generateContent(basePrompt);
+    
+    // Check for cancellation after API call
+    if (abortSignal?.aborted) {
+      throw new Error("Request cancelled after SECONDARY API call");
+    }
+    
     const { bpmText, bpm, sources, searchQueries } = extractBPMData(secondaryResult, "gemini-2.0-flash", "SECONDARY");
 
     // Add to UI log
@@ -188,6 +233,11 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
   try {
     console.log(`🥉 Trying TERTIARY (gemini-2.5-flash) for "${title}" by ${artist}`);
     
+    // Check for cancellation before tertiary tier
+    if (abortSignal?.aborted) {
+      throw new Error("Request cancelled during TERTIARY tier");
+    }
+    
     const tertiaryModel = genAI.getGenerativeModel({ 
       model: "gemini-2.5-flash",
       generationConfig: {
@@ -198,6 +248,12 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
     });
 
     const tertiaryResult = await tertiaryModel.generateContent(basePrompt);
+    
+    // Check for cancellation after API call
+    if (abortSignal?.aborted) {
+      throw new Error("Request cancelled after TERTIARY API call");
+    }
+    
     const { bpmText, bpm, sources, searchQueries } = extractBPMData(tertiaryResult, "gemini-2.5-flash", "TERTIARY");
 
     // Add to UI log
@@ -244,13 +300,19 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
   return null;
 }
 
-async function fetchTemposForTracksWithGemini(tracks, geminiApiKey, addGeminiLog = null) {
+async function fetchTemposForTracksWithGemini(tracks, geminiApiKey, addGeminiLog = null, abortSignal = null) {
   if (!tracks || tracks.length === 0) return {};
   
   const tempos = {};
-  const batchSize = 5; // Process in smaller batches to avoid rate limits
+  const batchSize = 20; // Process 5 tracks in parallel per batch
   
   for (let i = 0; i < tracks.length; i += batchSize) {
+    // Check for cancellation before each batch
+    if (abortSignal?.aborted) {
+      console.log(`🚫 Batch processing cancelled at batch ${Math.floor(i/batchSize) + 1}`);
+      break;
+    }
+    
     const batch = tracks.slice(i, i + batchSize);
     
     console.log(`\n📦 Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(tracks.length/batchSize)}:`);
@@ -263,12 +325,16 @@ async function fetchTemposForTracksWithGemini(tracks, geminiApiKey, addGeminiLog
       const artist = track.artists?.[0]?.name || track.artists?.[0] || 'Unknown Artist';
       
       try {
-        const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog);
+        const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog, abortSignal);
         if (bpm !== null) {
           tempos[track.id] = bpm;
         }
         return { trackId: track.id, bpm, title, artist };
       } catch (error) {
+        if (error.message.includes("cancelled")) {
+          console.log(`🚫 Request cancelled for ${title} by ${artist}`);
+          return { trackId: track.id, bpm: null, title, artist, cancelled: true };
+        }
         console.error(`❌ Error getting BPM for ${title} by ${artist}:`, error);
         return { trackId: track.id, bpm: null, title, artist };
       }
@@ -276,19 +342,27 @@ async function fetchTemposForTracksWithGemini(tracks, geminiApiKey, addGeminiLog
     
     const batchResults = await Promise.all(batchPromises);
     
+    // Check if any requests were cancelled
+    const cancelledCount = batchResults.filter(r => r.cancelled).length;
+    if (cancelledCount > 0) {
+      console.log(`🚫 ${cancelledCount} requests in batch were cancelled`);
+    }
+    
     // Log batch summary
     const successCount = batchResults.filter(r => r.bpm !== null).length;
     console.log(`\n✅ Batch ${Math.floor(i/batchSize) + 1} completed: ${successCount}/${batch.length} successful`);
     batchResults.forEach((result, idx) => {
-      if (result.bpm !== null) {
+      if (result.cancelled) {
+        console.log(`   🚫 ${result.title}: Cancelled`);
+      } else if (result.bpm !== null) {
         console.log(`   ✓ ${result.title}: ${result.bpm} BPM`);
       } else {
         console.log(`   ✗ ${result.title}: Failed to get BPM`);
       }
     });
     
-    // Rate limiting: wait between batches
-    if (i + batchSize < tracks.length) {
+    // Rate limiting: wait between batches (but not if cancelled)
+    if (i + batchSize < tracks.length && !abortSignal?.aborted) {
       console.log(`⏳ Waiting 1 second before next batch...`);
       await sleep(1000); // 1 second between batches
     }
@@ -300,7 +374,8 @@ async function fetchTemposForTracksWithGemini(tracks, geminiApiKey, addGeminiLog
 }
 
 // Helper function to filter tracks by BPM range (including half-time and double-time)
-function filterTracksByTempo(tracks, tempos, minBpm, maxBpm) {
+function filterTracksByTempo(tracks, tempos, tempoRange) {
+  const [minBpm, maxBpm] = tempoRange;
   return tracks.filter(track => {
     const tempo = tempos[track.id];
     if (!tempo) return false;
@@ -444,8 +519,7 @@ export default function App() {
   const [selectedPlaylistIds, setSelectedPlaylistIds] = useState([]);
   const [includeSaved, setIncludeSaved] = useState(true);
 
-  const [minTempo, setMinTempo] = useState(100);
-  const [maxTempo, setMaxTempo] = useState(130);
+  const [tempoRange, setTempoRange] = useState([100, 130]);
   const [isCustomRangeSelected, setIsCustomRangeSelected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [log, setLog] = useState([]);
@@ -467,6 +541,9 @@ export default function App() {
   const [allPulledTracks, setAllPulledTracks] = useState([]); // All tracks before tempo analysis
   const [allAnalyzedTracks, setAllAnalyzedTracks] = useState([]); // All tracks with tempo data
   const [geminiLogs, setGeminiLogs] = useState([]); // Live Gemini API responses
+
+  // Derived tempo values from tempoRange
+  const [minTempo, maxTempo] = tempoRange;
 
   const addLog = (msg) => setLog((l) => [msg, ...l]);
   const addGeminiLog = (logEntry) => setGeminiLogs((logs) => [logEntry, ...logs.slice(0, 49)]); // Keep last 50 entries
@@ -801,7 +878,7 @@ export default function App() {
         }));
 
       // Filter by BPM range and sort
-      const filtered = filterTracksByTempo(withTempo, tempos, minTempo, maxTempo)
+      const filtered = filterTracksByTempo(withTempo, tempos, tempoRange)
         .sort((a, b) => a.tempo - b.tempo);
       setCandidates(filtered);
       
@@ -818,7 +895,7 @@ export default function App() {
       if (halfTimeCount > 0) tempoBreakdown.push(`${halfTimeCount} half-time`);
       if (doubleTimeCount > 0) tempoBreakdown.push(`${doubleTimeCount} double-time`);
       
-      addLog(`✅ Found ${filtered.length} tracks in ${minTempo}-${maxTempo} BPM range (${tempoBreakdown.join(", ")}).`);
+      addLog(`✅ Found ${filtered.length} tracks in ${tempoRange[0]}-${tempoRange[1]} BPM range (${tempoBreakdown.join(", ")}).`);
       if (withTempo.length > 0) {
         addLog(`📊 Total tracks analyzed: ${withTempo.length}, Tempo range found: ${Math.min(...withTempo.map(t => t.tempo)).toFixed(1)}-${Math.max(...withTempo.map(t => t.tempo)).toFixed(1)} BPM`);
       }
@@ -852,6 +929,9 @@ export default function App() {
       alert("Please enter your Google Gemini API key in Settings first.");
       return;
     }
+    
+    // Create abort controller for cancelling requests when duration is reached
+    const abortController = new AbortController();
     
     setLoading(true);
     setCreatedPlaylistUrl("");
@@ -941,27 +1021,26 @@ export default function App() {
         // Scan tracks from this playlist
         for (const track of allPlaylistTracks) {
           if (currentDurationMs >= targetDurationMs) {
-            addLog(`🎯 Target duration of ${selectedDuration} minutes reached!`);
+            addLog(`🎯 Target duration of ${selectedDuration} minutes reached! Cancelling all pending requests...`);
+            abortController.abort(); // Cancel all pending Gemini requests
             break;
           }
-          
+
           // Skip if we already have this track
           if (selectedTracks.find(t => t.id === track.id)) {
             addLog(`⏭️ Skipping "${track.name}" - already added from previous playlist`);
             continue;
           }
-          
+
           scannedCount++;
           addLog(`🎶 [${playlistIndex}/${sortedPlaylists.length}] Scanning track ${scannedCount}: "${track.name}" by ${track.artists?.[0]?.name || 'Unknown'}`);
-          
+
           // Get BPM for this track using Gemini AI
           const title = track.name;
           const artist = track.artists?.[0]?.name || 'Unknown Artist';
-          
+
           try {
-            const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog);
-            
-            if (bpm !== null) {
+            const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog, abortController.signal);            if (bpm !== null) {
               // Check if BPM is in range (including half-time and double-time)
               const originalInRange = bpm >= minTempo && bpm <= maxTempo;
               const halfTimeInRange = (bpm / 2) >= minTempo && (bpm / 2) <= maxTempo;
@@ -1004,6 +1083,7 @@ export default function App() {
                 // Check if we've reached the target duration
                 if (currentDurationMs >= targetDurationMs) {
                   addLog(`🎯 Target duration reached with ${selectedTracks.length} tracks from ${playlistIndex} playlists!`);
+                  abortController.abort(); // Cancel any remaining requests
                   break;
                 }
               } else {
@@ -1013,7 +1093,12 @@ export default function App() {
               addLog(`❌ Could not determine BPM for "${track.name}" - skipping`);
             }
           } catch (error) {
-            addLog(`❌ Error analyzing "${track.name}": ${error.message}`);
+            if (error.message.includes("cancelled")) {
+              addLog(`🚫 BPM analysis cancelled for "${track.name}" - target duration reached`);
+              break; // Exit the track loop since we've reached target
+            } else {
+              addLog(`❌ Error analyzing "${track.name}": ${error.message}`);
+            }
           }
           
           // Small delay to prevent rate limiting
@@ -1050,7 +1135,11 @@ export default function App() {
           
           // Scan saved tracks
           for (const track of uniqueSavedTracks) {
-            if (currentDurationMs >= targetDurationMs) break;
+            if (currentDurationMs >= targetDurationMs) {
+              addLog(`🎯 Target duration reached! Cancelling remaining saved track analysis...`);
+              abortController.abort();
+              break;
+            }
             
             scannedCount++;
             addLog(`🎶 Saved track scan: "${track.name}" by ${track.artists?.[0]?.name || 'Unknown'}`);
@@ -1059,7 +1148,7 @@ export default function App() {
             const artist = track.artists?.[0]?.name || 'Unknown Artist';
             
             try {
-              const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog);
+              const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog, abortController.signal);
               
               if (bpm !== null) {
                 const originalInRange = bpm >= minTempo && bpm <= maxTempo;
@@ -1099,13 +1188,18 @@ export default function App() {
                   setTotalScannedDuration(currentDurationMs / 60000);
                   
                   if (currentDurationMs >= targetDurationMs) {
-                    addLog(`🎯 Target duration reached with saved tracks!`);
+                    addLog(`🎯 Target duration reached with saved tracks! Cancelling remaining requests...`);
+                    abortController.abort();
                     break;
                   }
                 }
               }
             } catch (error) {
-              // Continue with next track on error
+              if (error.message.includes("cancelled")) {
+                addLog(`🚫 Saved track analysis cancelled - target duration reached`);
+                break;
+              }
+              // Continue with next track on other errors
             }
             
             await sleep(200);
@@ -1304,14 +1398,37 @@ export default function App() {
     <div className="min-h-screen bg-background">
       <div className="max-w-5xl mx-auto px-4 py-8">
         <header className="flex items-center justify-between gap-4 mb-6">
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">Tempo Playlist Builder</h1>
+          <div className="flex items-center gap-3">
+            <img 
+              src="/image.png" 
+              alt="Sporkify" 
+              className="w-8 h-8 sm:w-10 sm:h-10"
+            />
+            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">Sporkify</h1>
+          </div>
           <div className="flex items-center gap-2">
             {isAuthed ? (
               <div className="flex items-center gap-2">
                 <span className="text-sm opacity-80">{me ? `Logged in as ${me.display_name || me.id}` : "Authenticated"}</span>
                 <Button 
                   size="sm"
-                  color="danger"
+                  radius="sm"
+                  variant="filled"
+                  style={{
+                    backgroundColor: 'white',
+                    color: 'black',
+                    border: '1px solid black',
+                    transition: 'all 0.2s ease',
+                    transform: 'scale(1)'
+                  }}
+                  styles={{
+                    root: {
+                      transition: 'all 0.2s ease',
+                      '&:hover': {
+                        opacity: 0.7,
+                      }
+                    }
+                  }}
                   onClick={() => {
                     localStorage.removeItem("spotify_access_token");
                     localStorage.removeItem("spotify_refresh_token");
@@ -1326,144 +1443,218 @@ export default function App() {
                 </Button>
               </div>
             ) : (
-              <Button 
-                color="success" 
-                size="lg"
+              <Card
+                style={{
+                  cursor: 'pointer',
+                  backgroundColor: 'var(--mantine-color-text)',
+                  transition: 'all 0.2s ease',
+                  border: 'none'
+                }}
                 onClick={startSpotifyAuth}
+                p="sm"
+                withBorder={false}
+                className="hover:bg-[var(--mantine-color-gray-1)]"
               >
-                Log in with Spotify
-              </Button>
+                <Group justify="center" gap="xs">
+                  {/* Spotify Logo SVG */}
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.6 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"
+                      fill="var(--mantine-color-body)"
+                    />
+                  </svg>
+                  <Text 
+                    size="md" 
+                    fw={500}
+                    c="var(--mantine-color-body)"
+                  >
+                    Log in with Spotify
+                  </Text>
+                </Group>
+              </Card>
             )}
           </div>
         </header>
 
+       
+
         {/* Tempo Controls */}
-        <Card className="mb-6">
-          <CardHeader>
-            <h2 className="text-lg font-semibold">Tempo Range (BPM)</h2>
-          </CardHeader>
-          <CardBody className="space-y-4">
+        <div className="mb-6" p="lg" withBorder={false} shadow="none">
+          <Title order={3} mb="md">Strides per Minute (SPM/BPM)</Title>
+          
+          <Stack gap="md">
+
+            <Text size="sm" c="dimmed" fs="italic" mb="md">
+              The animations display the approximate stride per tempo or ‘cadence’ of your run.
+            </Text>
+            
             {/* Preset BPM Ranges */}
-            <div className="grid grid-cols-3 gap-3">
+            <Group gap="sm" grow>
               {[
-                { min: 130, max: 150, label: "130-150" },
-                { min: 150, max: 170, label: "150-170" },
-                { min: 170, max: 190, label: "170-190" }
-              ].map((range) => (
-                <Button
-                  key={range.label}
-                  variant={minTempo === range.min && maxTempo === range.max && !isCustomRangeSelected ? "solid" : "bordered"}
-                  color={minTempo === range.min && maxTempo === range.max && !isCustomRangeSelected ? "primary" : "default"}
-                  onClick={() => {
-                    setMinTempo(range.min);
-                    setMaxTempo(range.max);
-                    setIsCustomRangeSelected(false);
-                  }}
-                >
-                  {range.label} BPM
-                </Button>
-              ))}
-            </div>
+                { 
+                  min: 130, 
+                  max: 150, 
+                  label: "130-150"
+                },
+                { 
+                  min: 150, 
+                  max: 170, 
+                  label: "150-170"
+                },
+                { 
+                  min: 170, 
+                  max: 190, 
+                  label: "170-190"
+                }
+              ].map((range) => {
+                const isSelected = minTempo === range.min && maxTempo === range.max && !isCustomRangeSelected;
+                return (
+                  <Card
+                    key={range.label}
+                    className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
+                    style={{
+                      cursor: 'pointer',
+                      backgroundColor: isSelected ? 'var(--mantine-color-brand-0)' : undefined,
+                      borderColor: isSelected ? 'var(--mantine-color-brand-3)' : undefined,
+                      borderWidth: isSelected ? 2 : 1,
+                      flex: 1
+                    }}
+                    onClick={() => {
+                      setTempoRange([range.min, range.max]);
+                      setIsCustomRangeSelected(false);
+                    }}
+                    p="md"
+                  >
+                    {/* Lottie Animation */}
+                    <Center>
+                        <DotLottieReact
+                          src="https://lottie.host/c65134e9-4356-48a5-afb5-6c698694df6b/xAKy7LuIjG.lottie"
+                          loop
+                          autoplay
+                          speed={range.min === 170 ? 1.5 : (range.min === 150 ? 1.2 : 1)}
+                          style={{ 
+                            width: '100%',
+                            maxWidth: '200px',
+                            height: 'auto',
+                            aspectRatio: '4 / 3',
+                            margin: '0 auto',
+                            filter: isSelected ? 'none' : 'grayscale(100%)',
+                            transition: 'filter 0.3s ease'
+                          }}
+                      />
+                    </Center>
+                    <Text 
+                      size="sm" 
+                      fw={500}
+                      c={isSelected ? 'brand.7' : undefined}
+                      ta="center"
+                    >
+                      {range.label} BPM
+                    </Text>
+                  </Card>
+                );
+              })}
+            </Group>
 
             {/* Custom Range Slider */}
             <Card 
-              isPressable
-              isHoverable
-              className={`cursor-pointer transition-colors ${
-                isCustomRangeSelected 
-                  ? 'bg-primary-50 border-primary-200 border-2' 
-                  : 'hover:bg-default-100'
-              }`}
+              className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
+              style={{
+                cursor: 'pointer',
+                backgroundColor: isCustomRangeSelected ? 'var(--mantine-color-blue-0)' : undefined,
+                borderColor: isCustomRangeSelected ? 'var(--mantine-color-blue-3)' : undefined,
+                borderWidth: isCustomRangeSelected ? 2 : 1
+              }}
               onClick={() => {
                 setIsCustomRangeSelected(true);
               }}
+              p="md"
             >
-              <CardBody>
-                <div className="flex items-center justify-between mb-3">
-                  <span className={`text-sm font-medium ${
-                    isCustomRangeSelected ? 'text-primary-700' : ''
-                  }`}>
-                    Custom Range:
-                  </span>
-                  <Chip 
-                    color={isCustomRangeSelected ? "primary" : "default"} 
-                    variant={isCustomRangeSelected ? "solid" : "flat"}
-                  >
-                    {minTempo} - {maxTempo} BPM
-                  </Chip>
-                </div>
-                
-                <div className="w-full">
-                  <Slider
-                    step={5}
-                    minValue={80}
-                    maxValue={210}
-                    value={[minTempo, maxTempo]}
-                    onChange={(value) => {
-                      setMinTempo(value[0]);
-                      setMaxTempo(value[1]);
-                      setIsCustomRangeSelected(true);
-                    }}
-                    className="w-full"
-                    isDisabled={false}
-                    color={isCustomRangeSelected ? "primary" : "default"}
-                  />
-                </div>
+              <Group justify="space-between" mb="sm">
+                <Text 
+                  size="sm" 
+                  fw={500}
+                  c={isCustomRangeSelected ? 'brand.7' : undefined}
+                >
+                  Custom Range:
+                </Text>
+                <Chip 
+                  color={isCustomRangeSelected ? "brand" : "gray"} 
+                  variant={isCustomRangeSelected ? "filled" : "light"}
+                >
+                  {Math.round(minTempo)} - {Math.round(maxTempo)} BPM
+                </Chip>
+              </Group>
               
-              </CardBody>
+              <RangeSlider
+                step={0.1}
+                min={80}
+                max={210}
+                value={[minTempo, maxTempo]}
+                onChange={(value) => {
+                  setTempoRange(value);
+                  setIsCustomRangeSelected(true);
+                }}
+                color={isCustomRangeSelected ? "brand" : "gray"}
+              />
             </Card>
-          </CardBody>
-        </Card>
+          </Stack>
+        </div>
 
         {/* Duration-Based Playlist Creator */}
-        <Card className="mb-6">
-          <CardHeader>
-            <h2 className="text-lg font-semibold">🎵 Smart Playlist Creator</h2>
-          </CardHeader>
-          <CardBody>
-            <p className="text-sm text-default-500 mb-4">
-              Find songs by scanning your most recent playlist additions, then review before creating playlist.
-            </p>
+        <div className="mb-6" p="lg">
+          <Title order={3} mb="md">Playlist Duration</Title>
+          <Stack gap="md">
+            
             
             {playlistCreationStep === "select" && (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm mb-2">Choose playlist duration:</label>
-                  <div className="grid grid-cols-3 gap-3">
+                  <Group gap="sm" grow>
                     {[15, 30, 60].map((duration) => (
-                      <Button
+                      <Card
                         key={duration}
-                        variant={selectedDuration === duration ? "solid" : "bordered"}
-                        color={selectedDuration === duration ? "success" : "default"}
+                        className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
+                        style={{
+                          cursor: 'pointer',
+                          backgroundColor: selectedDuration === duration ? 'var(--mantine-color-brand-0)' : undefined,
+                          borderColor: selectedDuration === duration ? 'var(--mantine-color-brand-3)' : undefined,
+                          borderWidth: selectedDuration === duration ? 2 : 1,
+                          flex: 1
+                        }}
                         onClick={() => setSelectedDuration(duration)}
+                        p="md"
                       >
-                        {duration} minutes
-                      </Button>
+                        <Text 
+                          size="sm" 
+                          fw={500}
+                          c={selectedDuration === duration ? 'brand.7' : undefined}
+                          ta="center"
+                        >
+                          {duration} minutes
+                        </Text>
+                      </Card>
                     ))}
-                  </div>
+                  </Group>
                 </div>
                 
                 <Button 
-                  color="primary"
                   size="lg"
-                  isDisabled={!isAuthed || !geminiApiKey || playlists.length === 0}
+                  color="brand"
+                  disabled={!isAuthed || !geminiApiKey || playlists.length === 0}
                   onClick={findMatchingSongs}
-                  className="w-full"
+                  fullWidth
                 >
-                  {`Find Songs for ${selectedDuration}-Minute Playlist`}
+                  {`Find Songs`}
                 </Button>
                 
-                {(!isAuthed || !geminiApiKey || (playlists.length === 0 && !loading)) && (
-                  <Card>
-                    <CardBody className="bg-warning-50 border border-warning-200">
-                      <div className="text-sm text-warning-700">
-                        {!isAuthed && "⚠️ Please log in to Spotify first"}
-                        {!geminiApiKey && "⚠️ Please enter your Gemini API key"}
-                        {playlists.length === 0 && !loading && "⚠️ No playlists available - playlists will load automatically after login"}
-                      </div>
-                    </CardBody>
-                  </Card>
-                )}
+                
               </div>
             )}
             
@@ -1481,76 +1672,65 @@ export default function App() {
                 
                 {/* Current Source Display */}
                 {currentSourcePlaylist && (
-                  <Card>
-                    <CardBody className="bg-primary-50 border border-primary-200">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Chip 
-                          color="primary" 
-                          variant="flat"
-                          size="sm"
-                        >
-                          {scanningPhase === "primary" && "🎯 Primary Source"}
-                          {scanningPhase === "secondary" && "🔄 Secondary Source"}
-                        </Chip>
-                      </div>
-                      <div className="text-sm">
-                        <div className="font-medium text-primary-700">{currentSourcePlaylist.name}</div>
-                        {currentSourcePlaylist.trackCount && (
-                          <div className="text-xs text-primary-600 mt-1">
-                            {currentSourcePlaylist.trackCount !== "Unknown" ? `${currentSourcePlaylist.trackCount} tracks` : "Loading track count..."}
-                          </div>
-                        )}
-                        {currentSourcePlaylist.details && (
-                          <div className="text-xs text-primary-600 mt-1 truncate">
-                            {currentSourcePlaylist.details}
-                          </div>
-                        )}
-                      </div>
-                    </CardBody>
-                  </Card>
+                  <Alert color="brand" variant="light">
+                    
+                    <Stack gap="xs">
+                      <Text size="sm" fw={500}>{currentSourcePlaylist.name}</Text>
+                      {currentSourcePlaylist.trackCount && (
+                        <Text size="xs" c="dimmed">
+                          {currentSourcePlaylist.trackCount !== "Unknown" ? `${currentSourcePlaylist.trackCount} tracks` : "Loading track count..."}
+                        </Text>
+                      )}
+                      {currentSourcePlaylist.details && (
+                        <Text size="xs" c="dimmed" truncate>
+                          {currentSourcePlaylist.details}
+                        </Text>
+                      )}
+                    </Stack>
+                  </Alert>
                 )}
                 
-                <Card>
-                  <CardBody>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm">Progress:</span>
-                      <span className="text-sm font-mono">
-                        {Math.round(totalScannedDuration)}/{selectedDuration} minutes
-                      </span>
-                    </div>
-                    <Progress 
-                      value={(totalScannedDuration / selectedDuration) * 100}
-                      color="primary"
-                      className="w-full"
-                    />
-                  </CardBody>
+                <Card p="md">
+                  <Group justify="space-between" mb="xs">
+                    <Text size="sm">Progress:</Text>
+                    <Text size="sm" span style={{ fontFamily: 'monospace' }}>
+                      {Math.round(totalScannedDuration)}/{selectedDuration} minutes
+                    </Text>
+                  </Group>
+                  <Progress 
+                    value={(totalScannedDuration / selectedDuration) * 100}
+                    color="brand"
+                    size="md"
+                  />
                 </Card>
                 
                 {scannedTracks.length > 0 && (
-                  <Card>
-                    <CardBody>
-                      <div className="text-sm font-medium mb-2">
-                        Found tracks ({scannedTracks.length}):
-                      </div>
-                      <div className="space-y-1 max-h-40 overflow-auto">
+                  <Card p="md">
+                    <Text size="sm" fw={500} mb="sm">
+                      Found tracks ({scannedTracks.length}):
+                    </Text>
+                    <ScrollArea style={{ maxHeight: '160px' }}>
+                      <Stack gap="xs">
                         {scannedTracks.map((track, i) => (
-                          <div key={track.id} className="flex items-center justify-between gap-3 bg-default-100 rounded-lg px-3 py-2 text-sm">
-                            <div className="truncate">
-                              <div className="truncate font-medium">{track.name}</div>
-                              <div className="truncate text-xs opacity-75">{track.artists?.map(a => a.name || a).join(", ")}</div>
-                            </div>
-                            <div className="text-xs font-mono">
-                              <Chip size="sm" variant="flat" color="success">
-                                {track.tempo?.toFixed(1)} BPM
-                              </Chip>
-                              {track.tempoType !== "original" && (
-                                <span className="ml-1 opacity-60">({track.tempoType})</span>
-                              )}
-                            </div>
-                          </div>
+                          <Paper key={track.id} p="sm" style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
+                            <Group justify="space-between" gap="sm">
+                              <Box style={{ minWidth: 0, flex: 1 }}>
+                                <Text size="sm" fw={500} truncate>{track.name}</Text>
+                                <Text size="xs" c="dimmed" truncate>{track.artists?.map(a => a.name || a).join(", ")}</Text>
+                              </Box>
+                              <Group gap="xs">
+                                <Chip size="sm" variant="light" color="spotify">
+                                  {track.tempo?.toFixed(1)} BPM
+                                </Chip>
+                                {track.tempoType !== "original" && (
+                                  <Text size="xs" c="dimmed">({track.tempoType})</Text>
+                                )}
+                              </Group>
+                            </Group>
+                          </Paper>
                         ))}
-                      </div>
-                    </CardBody>
+                      </Stack>
+                    </ScrollArea>
                   </Card>
                 )}
               </div>
@@ -1565,48 +1745,50 @@ export default function App() {
                   </div>
                 </div>
                 
-                <Card>
-                  <CardBody>
-                    <div className="text-sm font-medium mb-3">Selected Songs:</div>
-                    <div className="space-y-2 max-h-64 overflow-auto">
+                <Card p="md">
+                  <Text size="sm" fw={500} mb="md">Selected Songs:</Text>
+                  <ScrollArea style={{ maxHeight: '256px' }}>
+                    <Stack gap="sm">
                       {finalTrackSelection.map((track, i) => (
-                        <div key={track.id} className="flex items-center justify-between gap-3 bg-default-100 rounded-lg px-3 py-3">
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <Chip size="sm" variant="flat">{i + 1}</Chip>
-                            <div className="truncate flex-1">
-                              <div className="truncate font-medium">{track.name}</div>
-                              <div className="truncate text-xs opacity-75">
-                                {track.artists?.map(a => a.name || a).join(", ")} • {track.album?.name || 'Unknown Album'}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-xs font-mono">
-                              <Chip size="sm" color="success" variant="flat">
-                                {track.tempo?.toFixed(1)} BPM
-                              </Chip>
+                        <Paper key={track.id} p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
+                          <Group justify="space-between" gap="md">
+                            <Group gap="sm" style={{ flex: 1, minWidth: 0 }}>
+                              <Chip size="sm" variant="light">{i + 1}</Chip>
+                              <Box style={{ flex: 1, minWidth: 0 }}>
+                                <Text size="sm" fw={500} truncate>{track.name}</Text>
+                                <Text size="xs" c="dimmed" truncate>
+                                  {track.artists?.map(a => a.name || a).join(", ")} • {track.album?.name || 'Unknown Album'}
+                                </Text>
+                              </Box>
+                            </Group>
+                            <Box style={{ textAlign: 'right' }}>
+                              <Group gap="xs" justify="flex-end">
+                                <Chip size="sm" color="spotify" variant="light">
+                                  {track.tempo?.toFixed(1)} BPM
+                                </Chip>
+                              </Group>
                               {track.tempoType !== "original" && (
-                                <div className="text-xs opacity-60 mt-1">
+                                <Text size="xs" c="dimmed" mt="xs">
                                   {track.tempoType === "half-time" && (
-                                    <span className="text-primary-500">½× ({track.originalTempo?.toFixed(1)})</span>
+                                    <span style={{ color: 'var(--mantine-color-brand-6)' }}>½× ({track.originalTempo?.toFixed(1)})</span>
                                   )}
                                   {track.tempoType === "double-time" && (
-                                    <span className="text-warning-500">2× ({track.originalTempo?.toFixed(1)})</span>
+                                    <span style={{ color: 'var(--mantine-color-orange-6)' }}>2× ({track.originalTempo?.toFixed(1)})</span>
                                   )}
-                                </div>
+                                </Text>
                               )}
-                            </div>
-                            <div className="text-xs opacity-60 mt-1">
-                              {Math.round((track.duration_ms || 0) / 1000 / 60)}:{String(Math.round(((track.duration_ms || 0) / 1000) % 60)).padStart(2, '0')}
-                            </div>
-                          </div>
-                        </div>
+                              <Text size="xs" c="dimmed" mt="xs">
+                                {Math.round((track.duration_ms || 0) / 1000 / 60)}:{String(Math.round(((track.duration_ms || 0) / 1000) % 60)).padStart(2, '0')}
+                              </Text>
+                            </Box>
+                          </Group>
+                        </Paper>
                       ))}
-                    </div>
-                  </CardBody>
+                    </Stack>
+                  </ScrollArea>
                 </Card>
                 
-                <Input
+                <TextInput
                   label="Playlist name"
                   value={newPlaylistName}
                   onChange={(e) => setNewPlaylistName(e.target.value)}
@@ -1629,10 +1811,10 @@ export default function App() {
                     Start Over
                   </Button>
                   <Button 
-                    color="success"
-                    isLoading={loading}
+                    color="brand"
+                    loading={loading}
                     onClick={createPlaylistFromSelection}
-                    className="flex-1"
+                    style={{ flex: 1 }}
                   >
                     {loading ? "Creating..." : "Create Playlist"}
                   </Button>
@@ -1661,7 +1843,7 @@ export default function App() {
                     isExternal
                     showAnchorIcon
                   >
-                    <Button color="success" size="lg">
+                    <Button color="brand" size="lg">
                       🎵 Open in Spotify
                     </Button>
                   </Link>
@@ -1669,7 +1851,7 @@ export default function App() {
                 <Button 
                   variant="bordered"
                   onClick={() => {
-                    setPlaylistCreationStep("select");
+                                       setPlaylistCreationStep("select");
                     setScannedTracks([]);
                     setTotalScannedDuration(0);
                     setFinalTrackSelection([]);
@@ -1683,11 +1865,16 @@ export default function App() {
                 </Button>
               </div>
             )}
-          </CardBody>
-        </Card>
+          </Stack>
+        </div>
 
-        {/* Debug Authentication Status */}
-        <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+        {/* Debug Sections Accordion */}
+        <Accordion mb="md" variant="separated">
+          <Accordion.Item value="debug-info">
+            <Accordion.Control>Debug Information</Accordion.Control>
+            <Accordion.Panel>
+              <Stack gap="md">
+              <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 text-xs font-mono shadow-lg">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
             <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
               <span className="text-slate-300 font-medium">Access Token:</span><br/>
@@ -2079,6 +2266,12 @@ export default function App() {
             ))}
           </div>
         </section>
+              </Stack>
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
+
+        
       </div>
     </div>
   );
