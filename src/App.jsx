@@ -1405,7 +1405,7 @@ export default function App() {
                       setIsCustomRangeSelected(true);
                     }}
                     className="w-full"
-                    isDisabled={!isAuthed}
+                    isDisabled={false}
                     color={isCustomRangeSelected ? "primary" : "default"}
                   />
                 </div>
