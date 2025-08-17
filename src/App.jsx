@@ -1,6 +1,3 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
 // =============================================================
 // Spotify Tempo Playlist Builder — Single-file React App
 // Features
@@ -10,6 +7,23 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // 4) Filter tracks by tempo via Google Gemini AI with search grounding
 // 5) Create a new playlist with matching tracks
 // =============================================================
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Button, 
+  Card, 
+  CardBody, 
+  CardHeader,
+  Input, 
+  Slider, 
+  Chip,
+  Progress,
+  Checkbox,
+  Divider,
+  Link,
+  Spinner
+} from '@heroui/react';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // -------------------- Utility: Tiny helpers --------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -285,15 +299,51 @@ async function fetchTemposForTracksWithGemini(tracks, geminiApiKey, addGeminiLog
   return tempos;
 }
 
-// Helper function to filter tracks by BPM range
+// Helper function to filter tracks by BPM range (including half-time and double-time)
 function filterTracksByTempo(tracks, tempos, minBpm, maxBpm) {
   return tracks.filter(track => {
     const tempo = tempos[track.id];
-    return tempo && tempo >= minBpm && tempo <= maxBpm;
-  }).map(track => ({
-    ...track,
-    tempo: tempos[track.id]
-  }));
+    if (!tempo) return false;
+    
+    // Check if original BPM is in range
+    const inRange = tempo >= minBpm && tempo <= maxBpm;
+    
+    // Check if half-time (BPM / 2) is in range
+    const halfTime = tempo / 2;
+    const halfTimeInRange = halfTime >= minBpm && halfTime <= maxBpm;
+    
+    // Check if double-time (BPM * 2) is in range
+    const doubleTime = tempo * 2;
+    const doubleTimeInRange = doubleTime >= minBpm && doubleTime <= maxBpm;
+    
+    return inRange || halfTimeInRange || doubleTimeInRange;
+  }).map(track => {
+    const originalTempo = tempos[track.id];
+    const halfTime = originalTempo / 2;
+    const doubleTime = originalTempo * 2;
+    
+    // Determine which tempo variant is in range and use that as display tempo
+    let displayTempo = originalTempo;
+    let tempoType = "original";
+    
+    if (originalTempo >= minBpm && originalTempo <= maxBpm) {
+      displayTempo = originalTempo;
+      tempoType = "original";
+    } else if (halfTime >= minBpm && halfTime <= maxBpm) {
+      displayTempo = halfTime;
+      tempoType = "half-time";
+    } else if (doubleTime >= minBpm && doubleTime <= maxBpm) {
+      displayTempo = doubleTime;
+      tempoType = "double-time";
+    }
+    
+    return {
+      ...track,
+      tempo: displayTempo,
+      originalTempo: originalTempo,
+      tempoType: tempoType
+    };
+  });
 }
 
 // React hook for fetching track BPMs with Gemini
@@ -396,12 +446,22 @@ export default function App() {
 
   const [minTempo, setMinTempo] = useState(100);
   const [maxTempo, setMaxTempo] = useState(130);
+  const [isCustomRangeSelected, setIsCustomRangeSelected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [log, setLog] = useState([]);
 
   const [candidates, setCandidates] = useState([]); // {id, uri, name, artists:[], tempo}
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const [createdPlaylistUrl, setCreatedPlaylistUrl] = useState("");
+
+  // Duration-based playlist creation
+  const [selectedDuration, setSelectedDuration] = useState(30); // 15, 30, or 60 minutes
+  const [playlistCreationStep, setPlaylistCreationStep] = useState("select"); // "select", "scanning", "review", "creating", "complete"
+  const [scannedTracks, setScannedTracks] = useState([]); // Tracks found during progressive scan
+  const [totalScannedDuration, setTotalScannedDuration] = useState(0); // Total minutes scanned so far
+  const [finalTrackSelection, setFinalTrackSelection] = useState([]); // Final tracks ready for playlist creation
+  const [currentSourcePlaylist, setCurrentSourcePlaylist] = useState(null); // Currently scanning playlist info
+  const [scanningPhase, setScanningPhase] = useState("primary"); // "primary", "secondary", "complete"
 
   // Debug data for showing pulled songs and analysis
   const [allPulledTracks, setAllPulledTracks] = useState([]); // All tracks before tempo analysis
@@ -443,13 +503,21 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-load user profile when we have a token
+  // Auto-load user profile and playlists when we have a token
   useEffect(() => {
     if (accessToken && !me) {
       loadMe().catch(() => {/* Error handled in loadMe */});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, me]);
+
+  // Auto-load playlists when user profile is loaded
+  useEffect(() => {
+    if (me && playlists.length === 0 && !loading) {
+      loadPlaylists().catch(() => {/* Error handled in loadPlaylists */});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me, playlists.length, loading]);
 
   // -------------------- Spotify Auth --------------------
   async function startSpotifyAuth() {
@@ -740,7 +808,17 @@ export default function App() {
       // Store all analyzed tracks for display
       setAllAnalyzedTracks(withTempo.sort((a, b) => a.tempo - b.tempo));
       
-      addLog(`✅ Successfully matched ${filtered.length} tracks in ${minTempo}-${maxTempo} BPM range.`);
+      // Count tempo types for enhanced logging
+      const originalCount = filtered.filter(t => t.tempoType === "original").length;
+      const halfTimeCount = filtered.filter(t => t.tempoType === "half-time").length;
+      const doubleTimeCount = filtered.filter(t => t.tempoType === "double-time").length;
+      
+      const tempoBreakdown = [];
+      if (originalCount > 0) tempoBreakdown.push(`${originalCount} original`);
+      if (halfTimeCount > 0) tempoBreakdown.push(`${halfTimeCount} half-time`);
+      if (doubleTimeCount > 0) tempoBreakdown.push(`${doubleTimeCount} double-time`);
+      
+      addLog(`✅ Found ${filtered.length} tracks in ${minTempo}-${maxTempo} BPM range (${tempoBreakdown.join(", ")}).`);
       if (withTempo.length > 0) {
         addLog(`📊 Total tracks analyzed: ${withTempo.length}, Tempo range found: ${Math.min(...withTempo.map(t => t.tempo)).toFixed(1)}-${Math.max(...withTempo.map(t => t.tempo)).toFixed(1)} BPM`);
       }
@@ -763,32 +841,443 @@ export default function App() {
     }
   }
 
-  // -------------------- Create Playlist --------------------
+  // -------------------- Progressive Duration-Based Playlist Creation --------------------
+  async function findMatchingSongs() {
+    if (!me) {
+      alert("Not logged in.");
+      return;
+    }
+    
+    if (!geminiApiKey) {
+      alert("Please enter your Google Gemini API key in Settings first.");
+      return;
+    }
+    
+    setLoading(true);
+    setCreatedPlaylistUrl("");
+    setPlaylistCreationStep("scanning");
+    setScannedTracks([]);
+    setTotalScannedDuration(0);
+    setFinalTrackSelection([]);
+    setCurrentSourcePlaylist(null);
+    setScanningPhase("primary");
+    
+    try {
+      addLog(`🔍 Finding songs for ${selectedDuration}-minute playlist from most recent additions...`);
+      
+      // 1. Get the most recent playlist
+      if (!playlists.length) {
+        await loadPlaylists();
+        if (!playlists.length) {
+          addLog("❌ No playlists found. Please load your playlists first.");
+          setLoading(false);
+          setPlaylistCreationStep("select");
+          return;
+        }
+      }
+      
+      // Sort playlists by most recent (assuming newest first in API response)
+      const sortedPlaylists = [...playlists].sort((a, b) => new Date(b.added_at || 0) - new Date(a.added_at || 0));
+      
+      addLog(`📋 Will scan through ${sortedPlaylists.length} playlists in order of most recent...`);
+      
+      // 3. Progressive scan through playlists until duration is filled
+      const targetDurationMs = selectedDuration * 60 * 1000; // Convert to milliseconds
+      let currentDurationMs = 0;
+      let selectedTracks = [];
+      let scannedCount = 0;
+      let playlistIndex = 0;
+      
+      for (const currentPlaylist of sortedPlaylists) {
+        playlistIndex++;
+        
+        if (currentDurationMs >= targetDurationMs) {
+          addLog(`🎯 Target duration reached! Stopping playlist scan.`);
+          break;
+        }
+        
+        setCurrentSourcePlaylist({
+          name: currentPlaylist.name,
+          id: currentPlaylist.id,
+          trackCount: currentPlaylist.tracks?.total || 0,
+          type: "primary"
+        });
+        
+        addLog(`📋 Scanning playlist ${playlistIndex}/${sortedPlaylists.length}: "${currentPlaylist.name}"`);
+        
+        // Get tracks from current playlist, with pagination to get all tracks
+        let allPlaylistTracks = [];
+        let offset = 0;
+        let hasMore = true;
+        
+        while (hasMore) {
+          const playlistTracksResp = await spGet(`playlists/${currentPlaylist.id}/tracks`, { 
+            limit: 100, 
+            offset: offset 
+          });
+          
+          const tracks = (playlistTracksResp.items || [])
+            .filter(item => item && item.track && item.track.id && !item.is_local)
+            .map(item => ({
+              ...item.track,
+              added_at: item.added_at,
+              duration_ms: item.track.duration_ms
+            }));
+          
+          allPlaylistTracks.push(...tracks);
+          hasMore = tracks.length === 100;
+          offset += 100;
+          
+          if (hasMore) {
+            await sleep(50); // Small delay for API rate limiting
+          }
+        }
+        
+        // Sort by most recent addition (newest first) within this playlist
+        allPlaylistTracks = allPlaylistTracks.sort((a, b) => new Date(b.added_at) - new Date(a.added_at));
+        
+        addLog(`🔍 Found ${allPlaylistTracks.length} tracks in "${currentPlaylist.name}", scanning from most recent...`);
+        
+        // Scan tracks from this playlist
+        for (const track of allPlaylistTracks) {
+          if (currentDurationMs >= targetDurationMs) {
+            addLog(`🎯 Target duration of ${selectedDuration} minutes reached!`);
+            break;
+          }
+          
+          // Skip if we already have this track
+          if (selectedTracks.find(t => t.id === track.id)) {
+            addLog(`⏭️ Skipping "${track.name}" - already added from previous playlist`);
+            continue;
+          }
+          
+          scannedCount++;
+          addLog(`🎶 [${playlistIndex}/${sortedPlaylists.length}] Scanning track ${scannedCount}: "${track.name}" by ${track.artists?.[0]?.name || 'Unknown'}`);
+          
+          // Get BPM for this track using Gemini AI
+          const title = track.name;
+          const artist = track.artists?.[0]?.name || 'Unknown Artist';
+          
+          try {
+            const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog);
+            
+            if (bpm !== null) {
+              // Check if BPM is in range (including half-time and double-time)
+              const originalInRange = bpm >= minTempo && bpm <= maxTempo;
+              const halfTimeInRange = (bpm / 2) >= minTempo && (bpm / 2) <= maxTempo;
+              const doubleTimeInRange = (bpm * 2) >= minTempo && (bpm * 2) <= maxTempo;
+              
+              if (originalInRange || halfTimeInRange || doubleTimeInRange) {
+                // Determine display tempo and type
+                let displayTempo = bpm;
+                let tempoType = "original";
+                
+                if (originalInRange) {
+                  displayTempo = bpm;
+                  tempoType = "original";
+                } else if (halfTimeInRange) {
+                  displayTempo = bpm / 2;
+                  tempoType = "half-time";
+                } else if (doubleTimeInRange) {
+                  displayTempo = bpm * 2;
+                  tempoType = "double-time";
+                }
+                
+                const trackWithTempo = {
+                  ...track,
+                  tempo: displayTempo,
+                  originalTempo: bpm,
+                  tempoType: tempoType,
+                  sourcePlaylist: currentPlaylist.name
+                };
+                
+                selectedTracks.push(trackWithTempo);
+                currentDurationMs += track.duration_ms || 0;
+                
+                const currentMinutes = Math.round(currentDurationMs / 60000);
+                addLog(`✅ Added "${track.name}" from "${currentPlaylist.name}" (${displayTempo.toFixed(1)} BPM ${tempoType}) - ${currentMinutes}/${selectedDuration} min`);
+                
+                // Update state for live progress display
+                setScannedTracks([...selectedTracks]);
+                setTotalScannedDuration(currentDurationMs / 60000);
+                
+                // Check if we've reached the target duration
+                if (currentDurationMs >= targetDurationMs) {
+                  addLog(`🎯 Target duration reached with ${selectedTracks.length} tracks from ${playlistIndex} playlists!`);
+                  break;
+                }
+              } else {
+                addLog(`⏭️ Skipped "${track.name}" (${bpm.toFixed(1)} BPM - outside ${minTempo}-${maxTempo} range)`);
+              }
+            } else {
+              addLog(`❌ Could not determine BPM for "${track.name}" - skipping`);
+            }
+          } catch (error) {
+            addLog(`❌ Error analyzing "${track.name}": ${error.message}`);
+          }
+          
+          // Small delay to prevent rate limiting
+          await sleep(200);
+        }
+        
+        const currentMinutes = Math.round(currentDurationMs / 60000);
+        addLog(`📊 After playlist "${currentPlaylist.name}": ${selectedTracks.length} tracks, ${currentMinutes}/${selectedDuration} minutes`);
+      }
+      
+      // 4. Check if we have enough music from scanning playlists
+      const achievedMinutes = Math.round(currentDurationMs / 60000);
+      
+      if (currentDurationMs < targetDurationMs && selectedTracks.length > 0) {
+        addLog(`⚠️ Scanned all ${sortedPlaylists.length} playlists: Found ${achievedMinutes}/${selectedDuration} minutes of matching music.`);
+        
+        // Only use saved tracks as final fallback if we still don't have enough
+        if (includeSaved) {
+          addLog(`🔄 Using saved tracks as final fallback to fill remaining time...`);
+          setScanningPhase("secondary");
+          
+          setCurrentSourcePlaylist({
+            name: "Your Saved Tracks",
+            id: "saved",
+            trackCount: "Unknown",
+            type: "saved"
+          });
+          
+          const saved = await getAllSavedTracks();
+          const existingTrackIds = new Set(selectedTracks.map(t => t.id));
+          const uniqueSavedTracks = saved.filter(track => !existingTrackIds.has(track.id));
+          
+          addLog(`🔍 Scanning ${uniqueSavedTracks.length} saved tracks to fill remaining ${selectedDuration - achievedMinutes} minutes...`);
+          
+          // Scan saved tracks
+          for (const track of uniqueSavedTracks) {
+            if (currentDurationMs >= targetDurationMs) break;
+            
+            scannedCount++;
+            addLog(`🎶 Saved track scan: "${track.name}" by ${track.artists?.[0]?.name || 'Unknown'}`);
+            
+            const title = track.name;
+            const artist = track.artists?.[0]?.name || 'Unknown Artist';
+            
+            try {
+              const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog);
+              
+              if (bpm !== null) {
+                const originalInRange = bpm >= minTempo && bpm <= maxTempo;
+                const halfTimeInRange = (bpm / 2) >= minTempo && (bpm / 2) <= maxTempo;
+                const doubleTimeInRange = (bpm * 2) >= minTempo && (bpm * 2) <= maxTempo;
+                
+                if (originalInRange || halfTimeInRange || doubleTimeInRange) {
+                  let displayTempo = bpm;
+                  let tempoType = "original";
+                  
+                  if (originalInRange) {
+                    displayTempo = bpm;
+                    tempoType = "original";
+                  } else if (halfTimeInRange) {
+                    displayTempo = bpm / 2;
+                    tempoType = "half-time";
+                  } else if (doubleTimeInRange) {
+                    displayTempo = bpm * 2;
+                    tempoType = "double-time";
+                  }
+                  
+                  const trackWithTempo = {
+                    ...track,
+                    tempo: displayTempo,
+                    originalTempo: bpm,
+                    tempoType: tempoType,
+                    sourcePlaylist: "Saved Tracks"
+                  };
+                  
+                  selectedTracks.push(trackWithTempo);
+                  currentDurationMs += track.duration_ms || 0;
+                  
+                  const currentMinutes = Math.round(currentDurationMs / 60000);
+                  addLog(`✅ Added from saved tracks: "${track.name}" (${displayTempo.toFixed(1)} BPM ${tempoType}) - ${currentMinutes}/${selectedDuration} min`);
+                  
+                  setScannedTracks([...selectedTracks]);
+                  setTotalScannedDuration(currentDurationMs / 60000);
+                  
+                  if (currentDurationMs >= targetDurationMs) {
+                    addLog(`🎯 Target duration reached with saved tracks!`);
+                    break;
+                  }
+                }
+              }
+            } catch (error) {
+              // Continue with next track on error
+            }
+            
+            await sleep(200);
+          }
+        }
+      } else if (selectedTracks.length === 0) {
+        addLog(`❌ No matching tracks found in any of your ${sortedPlaylists.length} playlists. Try adjusting your BPM range.`);
+        setScanningPhase("complete");
+        setCurrentSourcePlaylist(null);
+        setPlaylistCreationStep("select");
+        setLoading(false);
+        return;
+      }
+      
+      // 5. Show results for review
+      if (selectedTracks.length > 0) {
+        const finalDuration = Math.round(currentDurationMs / 60000);
+        const playlistCount = new Set(selectedTracks.map(t => t.sourcePlaylist || "Unknown")).size;
+        addLog(`🎵 Found ${selectedTracks.length} matching tracks (${finalDuration} minutes) from ${playlistCount} source(s) - ready for review!`);
+        
+        if (finalDuration < selectedDuration) {
+          addLog(`📊 Note: Found ${finalDuration}/${selectedDuration} minutes - scanned all available playlists.`);
+        }
+        
+        setScanningPhase("complete");
+        setCurrentSourcePlaylist(null);
+        setFinalTrackSelection(selectedTracks);
+        setPlaylistCreationStep("review");
+      } else {
+        addLog(`❌ No matching tracks found in any playlist. Try adjusting your BPM range or ensure you have music in your playlists.`);
+        setScanningPhase("complete");
+        setCurrentSourcePlaylist(null);
+        setPlaylistCreationStep("select");
+      }
+      
+    } catch (error) {
+      console.error("Error finding matching songs:", error);
+      addLog(`❌ Error finding songs: ${error.message}`);
+      setScanningPhase("complete");
+      setCurrentSourcePlaylist(null);
+      setPlaylistCreationStep("select");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Create playlist from reviewed tracks
+  async function createPlaylistFromSelection() {
+    if (!me || finalTrackSelection.length === 0) {
+      return;
+    }
+    
+    setLoading(true);
+    setPlaylistCreationStep("creating");
+    
+    try {
+      const finalDuration = Math.round(finalTrackSelection.reduce((sum, t) => sum + (t.duration_ms || 0), 0) / 60000);
+      const name = newPlaylistName || `Smart ${finalDuration}min Mix (${minTempo}-${maxTempo} BPM)`;
+      
+      addLog(`🎵 Creating playlist "${name}" with ${finalTrackSelection.length} tracks...`);
+      
+      const pl = await spPost(`users/${me.id}/playlists`, {
+        name,
+        description: `Smart tempo playlist: ${minTempo}-${maxTempo} BPM, ${finalDuration} minutes. Created from most recent additions.`,
+        public: false,
+      });
+      
+      // Add tracks to playlist in chunks
+      const uris = finalTrackSelection.map(t => t.uri);
+      for (const uriChunk of chunk(uris, 100)) {
+        await spPost(`playlists/${pl.id}/tracks`, { uris: uriChunk });
+        await sleep(100);
+      }
+      
+      setCreatedPlaylistUrl(pl.external_urls?.spotify || "");
+      addLog(`🎉 Successfully created playlist "${name}" with ${finalTrackSelection.length} tracks (${finalDuration} minutes)!`);
+      setPlaylistCreationStep("complete");
+      
+    } catch (error) {
+      console.error("Error creating playlist:", error);
+      addLog(`❌ Error creating playlist: ${error.message}`);
+      setPlaylistCreationStep("review");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // -------------------- Original Create Playlist (kept for backward compatibility) --------------------
   async function createPlaylist() {
     if (!me) {
       alert("Not logged in.");
       return;
     }
-    const items = [...candidates];
-    if (items.length === 0) {
-      alert("No tracks to add.");
-      return;
-    }
-    const name = newPlaylistName || `Tempo ${minTempo}-${maxTempo} BPM`;
     setLoading(true);
+    setCreatedPlaylistUrl("");
     try {
-      const pl = await spPost(`users/${me.id}/playlists`, {
-        name,
-        description: `Auto-built by Tempo Builder — ${minTempo}-${maxTempo} BPM`,
-        public: false,
-      });
-      const uris = items.map((x) => x.uri);
-      for (const c of chunk(uris, 100)) {
-        await spPost(`playlists/${pl.id}/tracks`, { uris: c });
-        await sleep(50);
+      // 1. Get tracks from the most recent playlist (by selectedPlaylistIds[0])
+      if (!selectedPlaylistIds.length) {
+        alert("Please select a playlist.");
+        setLoading(false);
+        return;
       }
-      setCreatedPlaylistUrl(pl.external_urls?.spotify || "");
-      addLog(`Created playlist with ${items.length} tracks.`);
+      const playlistId = selectedPlaylistIds[0];
+      const playlistTracksResp = await spGet(`playlists/${playlistId}/tracks?limit=100`);
+      let playlistTracks = (playlistTracksResp.items || []).map(item => ({
+        ...item.track,
+        added_at: item.added_at,
+        duration_ms: item.track.duration_ms
+      }));
+      playlistTracks = sortByMostRecent(playlistTracks);
+
+      // 2. Try to fill up the selected duration with primary (already scanned) candidates
+      let filledTracks = [];
+      let totalDuration = 0;
+      for (const t of playlistTracks) {
+        const match = candidates.find(c => c.id === t.id);
+        if (match) {
+          filledTracks.push({ ...t, ...match });
+          totalDuration += (t.duration_ms || 0);
+          if (totalDuration / 60000 >= selectedDuration) break;
+        }
+      }
+      if (totalDuration / 60000 >= selectedDuration) {
+        // Success: create playlist with these tracks
+        const name = newPlaylistName || `Tempo ${minTempo}-${maxTempo} BPM (${selectedDuration} min)`;
+        const pl = await spPost(`users/${me.id}/playlists`, {
+          name,
+          description: `Auto-built by Tempo Builder — ${minTempo}-${maxTempo} BPM, ${selectedDuration} min` ,
+          public: false,
+        });
+        const uris = filledTracks.map((x) => x.uri);
+        for (const c of chunk(uris, 100)) {
+          await spPost(`playlists/${pl.id}/tracks`, { uris: c });
+          await sleep(50);
+        }
+        setCreatedPlaylistUrl(pl.external_urls?.spotify || "");
+        addLog(`Created playlist with ${filledTracks.length} tracks for ${selectedDuration} min.`);
+        setLoading(false);
+        return;
+      }
+      // 3. If not enough, try secondary/tertiary sources (all candidates)
+      for (const t of playlistTracks) {
+        if (!filledTracks.find(f => f.id === t.id)) {
+          const match = candidates.find(c => c.id === t.id);
+          if (match) {
+            filledTracks.push({ ...t, ...match });
+            totalDuration += (t.duration_ms || 0);
+            if (totalDuration / 60000 >= selectedDuration) break;
+          }
+        }
+      }
+      if (totalDuration / 60000 >= selectedDuration) {
+        // Success: create playlist with these tracks
+        const name = newPlaylistName || `Tempo ${minTempo}-${maxTempo} BPM (${selectedDuration} min)`;
+        const pl = await spPost(`users/${me.id}/playlists`, {
+          name,
+          description: `Auto-built by Tempo Builder — ${minTempo}-${maxTempo} BPM, ${selectedDuration} min` ,
+          public: false,
+        });
+        const uris = filledTracks.map((x) => x.uri);
+        for (const c of chunk(uris, 100)) {
+          await spPost(`playlists/${pl.id}/tracks`, { uris: c });
+          await sleep(50);
+        }
+        setCreatedPlaylistUrl(pl.external_urls?.spotify || "");
+        addLog(`Created playlist with ${filledTracks.length} tracks for ${selectedDuration} min (using secondary/tertiary sources).`);
+        setLoading(false);
+        return;
+      }
+      // 4. Not enough music
+      addLog(`❌ Not enough music in your most recent playlist to fill ${selectedDuration} min.`);
+      alert(`Not enough music in your most recent playlist to fill ${selectedDuration} min.`);
     } catch (e) {
       console.error(e);
       addLog("Failed to create playlist.");
@@ -797,12 +1286,22 @@ export default function App() {
     }
   }
 
+  // Helper: Calculate total duration in minutes from a list of tracks
+  function getTotalDurationMinutes(tracks) {
+    return tracks.reduce((sum, t) => sum + (t.duration_ms || 0), 0) / 60000;
+  }
+
+  // Helper: Sort tracks by most recent addition (assuming 'added_at' exists)
+  function sortByMostRecent(tracks) {
+    return [...tracks].sort((a, b) => new Date(b.added_at) - new Date(a.added_at));
+  }
+
   // -------------------- UI --------------------
   const isAuthed = !!accessToken;
   const totalFound = candidates.length;
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100">
+    <div className="min-h-screen bg-background">
       <div className="max-w-5xl mx-auto px-4 py-8">
         <header className="flex items-center justify-between gap-4 mb-6">
           <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">Tempo Playlist Builder</h1>
@@ -810,7 +1309,9 @@ export default function App() {
             {isAuthed ? (
               <div className="flex items-center gap-2">
                 <span className="text-sm opacity-80">{me ? `Logged in as ${me.display_name || me.id}` : "Authenticated"}</span>
-                <button 
+                <Button 
+                  size="sm"
+                  color="danger"
                   onClick={() => {
                     localStorage.removeItem("spotify_access_token");
                     localStorage.removeItem("spotify_refresh_token");
@@ -820,41 +1321,395 @@ export default function App() {
                     setTokenExpiry(0);
                     setMe(null);
                   }}
-                  className="px-3 py-1 text-xs rounded-lg bg-red-500 text-white"
                 >
                   Logout
-                </button>
+                </Button>
               </div>
             ) : (
-              <button onClick={startSpotifyAuth} className="px-4 py-2 rounded-2xl bg-green-500 text-black font-medium shadow">Log in with Spotify</button>
+              <Button 
+                color="success" 
+                size="lg"
+                onClick={startSpotifyAuth}
+              >
+                Log in with Spotify
+              </Button>
             )}
           </div>
         </header>
 
+        {/* Tempo Controls */}
+        <Card className="mb-6">
+          <CardHeader>
+            <h2 className="text-lg font-semibold">Tempo Range (BPM)</h2>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            {/* Preset BPM Ranges */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { min: 130, max: 150, label: "130-150" },
+                { min: 150, max: 170, label: "150-170" },
+                { min: 170, max: 190, label: "170-190" }
+              ].map((range) => (
+                <Button
+                  key={range.label}
+                  variant={minTempo === range.min && maxTempo === range.max && !isCustomRangeSelected ? "solid" : "bordered"}
+                  color={minTempo === range.min && maxTempo === range.max && !isCustomRangeSelected ? "primary" : "default"}
+                  onClick={() => {
+                    setMinTempo(range.min);
+                    setMaxTempo(range.max);
+                    setIsCustomRangeSelected(false);
+                  }}
+                >
+                  {range.label} BPM
+                </Button>
+              ))}
+            </div>
+
+            {/* Custom Range Slider */}
+            <Card 
+              isPressable
+              isHoverable
+              className={`cursor-pointer transition-colors ${
+                isCustomRangeSelected 
+                  ? 'bg-primary-50 border-primary-200 border-2' 
+                  : 'hover:bg-default-100'
+              }`}
+              onClick={() => {
+                setIsCustomRangeSelected(true);
+              }}
+            >
+              <CardBody>
+                <div className="flex items-center justify-between mb-3">
+                  <span className={`text-sm font-medium ${
+                    isCustomRangeSelected ? 'text-primary-700' : ''
+                  }`}>
+                    Custom Range:
+                  </span>
+                  <Chip 
+                    color={isCustomRangeSelected ? "primary" : "default"} 
+                    variant={isCustomRangeSelected ? "solid" : "flat"}
+                  >
+                    {minTempo} - {maxTempo} BPM
+                  </Chip>
+                </div>
+                
+                <div className="w-full">
+                  <Slider
+                    step={5}
+                    minValue={80}
+                    maxValue={210}
+                    value={[minTempo, maxTempo]}
+                    onChange={(value) => {
+                      setMinTempo(value[0]);
+                      setMaxTempo(value[1]);
+                      setIsCustomRangeSelected(true);
+                    }}
+                    className="w-full"
+                    isDisabled={!isAuthed}
+                    color={isCustomRangeSelected ? "primary" : "default"}
+                  />
+                </div>
+              
+              </CardBody>
+            </Card>
+          </CardBody>
+        </Card>
+
+        {/* Duration-Based Playlist Creator */}
+        <Card className="mb-6">
+          <CardHeader>
+            <h2 className="text-lg font-semibold">🎵 Smart Playlist Creator</h2>
+          </CardHeader>
+          <CardBody>
+            <p className="text-sm text-default-500 mb-4">
+              Find songs by scanning your most recent playlist additions, then review before creating playlist.
+            </p>
+            
+            {playlistCreationStep === "select" && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm mb-2">Choose playlist duration:</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[15, 30, 60].map((duration) => (
+                      <Button
+                        key={duration}
+                        variant={selectedDuration === duration ? "solid" : "bordered"}
+                        color={selectedDuration === duration ? "success" : "default"}
+                        onClick={() => setSelectedDuration(duration)}
+                      >
+                        {duration} minutes
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                
+                <Button 
+                  color="primary"
+                  size="lg"
+                  isDisabled={!isAuthed || !geminiApiKey || playlists.length === 0}
+                  onClick={findMatchingSongs}
+                  className="w-full"
+                >
+                  {`Find Songs for ${selectedDuration}-Minute Playlist`}
+                </Button>
+                
+                {(!isAuthed || !geminiApiKey || (playlists.length === 0 && !loading)) && (
+                  <Card>
+                    <CardBody className="bg-warning-50 border border-warning-200">
+                      <div className="text-sm text-warning-700">
+                        {!isAuthed && "⚠️ Please log in to Spotify first"}
+                        {!geminiApiKey && "⚠️ Please enter your Gemini API key"}
+                        {playlists.length === 0 && !loading && "⚠️ No playlists available - playlists will load automatically after login"}
+                      </div>
+                    </CardBody>
+                  </Card>
+                )}
+              </div>
+            )}
+            
+            {playlistCreationStep === "scanning" && (
+              <div className="space-y-4">
+                <div className="text-center">
+                  <div className="text-lg font-medium flex items-center justify-center gap-2">
+                    <Spinner size="sm" />
+                    🔍 Scanning your music...
+                  </div>
+                  <div className="text-sm text-default-500 mt-1">
+                    Finding {selectedDuration}-minute playlist from your most recent additions
+                  </div>
+                </div>
+                
+                {/* Current Source Display */}
+                {currentSourcePlaylist && (
+                  <Card>
+                    <CardBody className="bg-primary-50 border border-primary-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Chip 
+                          color="primary" 
+                          variant="flat"
+                          size="sm"
+                        >
+                          {scanningPhase === "primary" && "🎯 Primary Source"}
+                          {scanningPhase === "secondary" && "🔄 Secondary Source"}
+                        </Chip>
+                      </div>
+                      <div className="text-sm">
+                        <div className="font-medium text-primary-700">{currentSourcePlaylist.name}</div>
+                        {currentSourcePlaylist.trackCount && (
+                          <div className="text-xs text-primary-600 mt-1">
+                            {currentSourcePlaylist.trackCount !== "Unknown" ? `${currentSourcePlaylist.trackCount} tracks` : "Loading track count..."}
+                          </div>
+                        )}
+                        {currentSourcePlaylist.details && (
+                          <div className="text-xs text-primary-600 mt-1 truncate">
+                            {currentSourcePlaylist.details}
+                          </div>
+                        )}
+                      </div>
+                    </CardBody>
+                  </Card>
+                )}
+                
+                <Card>
+                  <CardBody>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm">Progress:</span>
+                      <span className="text-sm font-mono">
+                        {Math.round(totalScannedDuration)}/{selectedDuration} minutes
+                      </span>
+                    </div>
+                    <Progress 
+                      value={(totalScannedDuration / selectedDuration) * 100}
+                      color="primary"
+                      className="w-full"
+                    />
+                  </CardBody>
+                </Card>
+                
+                {scannedTracks.length > 0 && (
+                  <Card>
+                    <CardBody>
+                      <div className="text-sm font-medium mb-2">
+                        Found tracks ({scannedTracks.length}):
+                      </div>
+                      <div className="space-y-1 max-h-40 overflow-auto">
+                        {scannedTracks.map((track, i) => (
+                          <div key={track.id} className="flex items-center justify-between gap-3 bg-default-100 rounded-lg px-3 py-2 text-sm">
+                            <div className="truncate">
+                              <div className="truncate font-medium">{track.name}</div>
+                              <div className="truncate text-xs opacity-75">{track.artists?.map(a => a.name || a).join(", ")}</div>
+                            </div>
+                            <div className="text-xs font-mono">
+                              <Chip size="sm" variant="flat" color="success">
+                                {track.tempo?.toFixed(1)} BPM
+                              </Chip>
+                              {track.tempoType !== "original" && (
+                                <span className="ml-1 opacity-60">({track.tempoType})</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardBody>
+                  </Card>
+                )}
+              </div>
+            )}
+            
+            {playlistCreationStep === "review" && (
+              <div className="space-y-4">
+                <div className="text-center">
+                  <div className="text-lg font-medium text-success-600">🎵 Found Your Songs!</div>
+                  <div className="text-sm text-default-500 mt-1">
+                    {finalTrackSelection.length} tracks • {Math.round(finalTrackSelection.reduce((sum, t) => sum + (t.duration_ms || 0), 0) / 60000)} minutes
+                  </div>
+                </div>
+                
+                <Card>
+                  <CardBody>
+                    <div className="text-sm font-medium mb-3">Selected Songs:</div>
+                    <div className="space-y-2 max-h-64 overflow-auto">
+                      {finalTrackSelection.map((track, i) => (
+                        <div key={track.id} className="flex items-center justify-between gap-3 bg-default-100 rounded-lg px-3 py-3">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <Chip size="sm" variant="flat">{i + 1}</Chip>
+                            <div className="truncate flex-1">
+                              <div className="truncate font-medium">{track.name}</div>
+                              <div className="truncate text-xs opacity-75">
+                                {track.artists?.map(a => a.name || a).join(", ")} • {track.album?.name || 'Unknown Album'}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs font-mono">
+                              <Chip size="sm" color="success" variant="flat">
+                                {track.tempo?.toFixed(1)} BPM
+                              </Chip>
+                              {track.tempoType !== "original" && (
+                                <div className="text-xs opacity-60 mt-1">
+                                  {track.tempoType === "half-time" && (
+                                    <span className="text-primary-500">½× ({track.originalTempo?.toFixed(1)})</span>
+                                  )}
+                                  {track.tempoType === "double-time" && (
+                                    <span className="text-warning-500">2× ({track.originalTempo?.toFixed(1)})</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-xs opacity-60 mt-1">
+                              {Math.round((track.duration_ms || 0) / 1000 / 60)}:{String(Math.round(((track.duration_ms || 0) / 1000) % 60)).padStart(2, '0')}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardBody>
+                </Card>
+                
+                <Input
+                  label="Playlist name"
+                  value={newPlaylistName}
+                  onChange={(e) => setNewPlaylistName(e.target.value)}
+                  placeholder={`Smart ${Math.round(finalTrackSelection.reduce((sum, t) => sum + (t.duration_ms || 0), 0) / 60000)}min Mix (${minTempo}-${maxTempo} BPM)`}
+                />
+                
+                <div className="flex gap-3">
+                  <Button 
+                    variant="bordered"
+                    onClick={() => {
+                      setPlaylistCreationStep("select");
+                      setScannedTracks([]);
+                      setTotalScannedDuration(0);
+                      setFinalTrackSelection([]);
+                      setCurrentSourcePlaylist(null);
+                      setScanningPhase("primary");
+                    }} 
+                    className="flex-1"
+                  >
+                    Start Over
+                  </Button>
+                  <Button 
+                    color="success"
+                    isLoading={loading}
+                    onClick={createPlaylistFromSelection}
+                    className="flex-1"
+                  >
+                    {loading ? "Creating..." : "Create Playlist"}
+                  </Button>
+                </div>
+              </div>
+            )}
+            
+            {playlistCreationStep === "creating" && (
+              <div className="text-center space-y-4">
+                <div className="text-lg font-medium flex items-center justify-center gap-2">
+                  <Spinner />
+                  🎵 Creating your playlist...
+                </div>
+                <div className="text-sm text-default-500">
+                  Adding {finalTrackSelection.length} tracks to Spotify
+                </div>
+              </div>
+            )}
+            
+            {playlistCreationStep === "complete" && (
+              <div className="text-center space-y-4">
+                <div className="text-lg font-medium text-success-600">✅ Playlist Created!</div>
+                {createdPlaylistUrl && (
+                  <Link 
+                    href={createdPlaylistUrl}
+                    isExternal
+                    showAnchorIcon
+                  >
+                    <Button color="success" size="lg">
+                      🎵 Open in Spotify
+                    </Button>
+                  </Link>
+                )}
+                <Button 
+                  variant="bordered"
+                  onClick={() => {
+                    setPlaylistCreationStep("select");
+                    setScannedTracks([]);
+                    setTotalScannedDuration(0);
+                    setFinalTrackSelection([]);
+                    setCreatedPlaylistUrl("");
+                    setNewPlaylistName("");
+                    setCurrentSourcePlaylist(null);
+                    setScanningPhase("primary");
+                  }} 
+                >
+                  Create Another Playlist
+                </Button>
+              </div>
+            )}
+          </CardBody>
+        </Card>
+
         {/* Debug Authentication Status */}
-        <section className="bg-neutral-800/50 rounded-lg p-3 mb-4 text-xs font-mono">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
-            <div>
-              <span className="text-neutral-400">Access Token:</span><br/>
-              <span className={accessToken ? "text-green-400" : "text-red-400"}>
+        <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+            <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+              <span className="text-slate-300 font-medium">Access Token:</span><br/>
+              <span className={accessToken ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
                 {accessToken ? `${accessToken.substring(0, 20)}...` : "None"}
               </span>
             </div>
-            <div>
-              <span className="text-neutral-400">Refresh Token:</span><br/>
-              <span className={refreshToken ? "text-green-400" : "text-red-400"}>
+            <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+              <span className="text-slate-300 font-medium">Refresh Token:</span><br/>
+              <span className={refreshToken ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
                 {refreshToken ? `${refreshToken.substring(0, 20)}...` : "None"}
               </span>
             </div>
-            <div>
-              <span className="text-neutral-400">Expires:</span><br/>
-              <span className={tokenExpiry > Math.floor(Date.now() / 1000) ? "text-green-400" : "text-red-400"}>
+            <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+              <span className="text-slate-300 font-medium">Expires:</span><br/>
+              <span className={tokenExpiry > Math.floor(Date.now() / 1000) ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
                 {tokenExpiry ? new Date(tokenExpiry * 1000).toLocaleTimeString() : "Never"}
               </span>
             </div>
-            <div>
-              <span className="text-neutral-400">User:</span><br/>
-              <span className={me ? "text-green-400" : "text-red-400"}>
+            <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+              <span className="text-slate-300 font-medium">User:</span><br/>
+              <span className={me ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
                 {me ? me.display_name || me.id : "Not loaded"}
               </span>
             </div>
@@ -881,201 +1736,60 @@ export default function App() {
           )}
         </section>
 
-        {/* Settings */}
-        <section className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 bg-neutral-900/50 rounded-2xl p-4 mb-6">
-          <div className="col-span-1 md:col-span-3 mb-4">
-            <h2 className="text-lg font-semibold mb-2">🔧 API Configuration</h2>
-            <div className="text-sm text-yellow-400 bg-yellow-400/10 rounded-lg p-3 mb-3">
-              <strong>📍 Current Redirect URI:</strong> <code>{redirectUri}</code><br/>
-              <strong>⚠️ This MUST exactly match your Spotify app settings!</strong><br/>
-              <strong>🤖 BPM Analysis:</strong> Now powered by Google Gemini AI with real-time web search grounding for verified tempo data!
-            </div>
-            {(import.meta.env.VITE_SPOTIFY_CLIENT_ID || import.meta.env.VITE_GEMINI_API_KEY) && (
-              <div className="text-sm text-green-400 bg-green-400/10 rounded-lg p-3">
-                <strong>✅ Environment Variables Loaded:</strong><br/>
-                {import.meta.env.VITE_SPOTIFY_CLIENT_ID && <span>• Spotify Client ID from .env<br/></span>}
-                {import.meta.env.VITE_SPOTIFY_REDIRECT_URI && <span>• Redirect URI from .env<br/></span>}
-                {import.meta.env.VITE_GEMINI_API_KEY && <span>• Gemini API Key from .env<br/></span>}
-                <span className="text-xs opacity-75 mt-1 block">You can still override these values in the fields below.</span>
-              </div>
-            )}
-          </div>
-          <div className="col-span-1 md:col-span-1">
-            <label className="block text-sm mb-1">
-              Spotify Client ID
-              {import.meta.env.VITE_SPOTIFY_CLIENT_ID && <span className="text-green-400 ml-1">(.env)</span>}
-            </label>
-            <input 
-              value={clientId} 
-              onChange={(e) => setClientId(e.target.value)} 
-              className="w-full px-3 py-2 rounded-xl bg-neutral-800 outline-none" 
-              placeholder={import.meta.env.VITE_SPOTIFY_CLIENT_ID ? "Loaded from .env" : "Your Spotify Client ID"} 
-            />
-          </div>
-          <div className="col-span-1 md:col-span-2">
-            <label className="block text-sm mb-1">
-              Redirect URI (must be whitelisted in your Spotify App)
-              {import.meta.env.VITE_SPOTIFY_REDIRECT_URI && <span className="text-green-400 ml-1">(.env)</span>}
-            </label>
-            <input 
-              value={redirectUri} 
-              onChange={(e) => setRedirectUri(e.target.value)} 
-              className="w-full px-3 py-2 rounded-xl bg-neutral-800 outline-none" 
-              placeholder={import.meta.env.VITE_SPOTIFY_REDIRECT_URI || DEFAULT_REDIRECT} 
-            />
-          </div>
-          <div className="col-span-1 md:col-span-3">
-            <label className="block text-sm mb-1">
-              Google Gemini API Key (required for BPM analysis)
-              {import.meta.env.VITE_GEMINI_API_KEY && <span className="text-green-400 ml-1">(.env)</span>}
-            </label>
-            <input 
-              value={geminiApiKey} 
-              onChange={(e) => setGeminiApiKey(e.target.value)} 
-              className="w-full px-3 py-2 rounded-xl bg-neutral-800 outline-none" 
-              placeholder={import.meta.env.VITE_GEMINI_API_KEY ? "Loaded from .env" : "AIza..."} 
-            />
-          </div>
-        </section>
-
-        {/* Source Selection */}
-        <section className="bg-neutral-900/50 rounded-2xl p-4 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-            <h2 className="text-lg font-semibold">Sources</h2>
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={includeSaved} onChange={(e) => setIncludeSaved(e.target.checked)} /> Include Saved Tracks
-              </label>
-              <button onClick={loadPlaylists} disabled={!isAuthed || loading} className="px-3 py-2 rounded-xl bg-neutral-800 disabled:opacity-50">Load My Playlists</button>
-            </div>
-          </div>
-
-          {playlists.length > 0 ? (
-            <div className="max-h-64 overflow-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-              {playlists.map((p) => (
-                <label key={p.id} className="flex items-center gap-2 bg-neutral-800/70 rounded-xl px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedPlaylistIds.includes(p.id)}
-                    onChange={(e) => {
-                      setSelectedPlaylistIds((cur) =>
-                        e.target.checked ? [...cur, p.id] : cur.filter((id) => id !== p.id)
-                      );
-                    }}
-                  />
-                  <span className="truncate">{p.name}</span>
-                </label>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm opacity-75">(No playlists loaded yet)</p>
-          )}
-        </section>
-
-        {/* Tempo Controls */}
-        <section className="bg-neutral-900/50 rounded-2xl p-4 mb-6">
-          <h2 className="text-lg font-semibold mb-3">Tempo Range (BPM)</h2>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label className="block text-sm mb-1">Min</label>
-              <input type="number" value={minTempo} onChange={(e) => setMinTempo(Number(e.target.value))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 outline-none" />
-            </div>
-            <div>
-              <label className="block text-sm mb-1">Max</label>
-              <input type="number" value={maxTempo} onChange={(e) => setMaxTempo(Number(e.target.value))} className="w-full px-3 py-2 rounded-xl bg-neutral-800 outline-none" />
-            </div>
-            <div className="flex items-end">
-              <button onClick={loadCandidates} disabled={!isAuthed || loading} className="w-full px-4 py-3 rounded-xl bg-green-500 text-black font-semibold disabled:opacity-50">Find Matching Songs</button>
-            </div>
-          </div>
-        </section>
-
-        {/* Results */}
-        <section className="bg-neutral-900/50 rounded-2xl p-4 mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">Tempo-Matched Results</h2>
-            <span className="text-sm opacity-80">{totalFound} tracks</span>
-          </div>
-          {candidates.length === 0 ? (
-            <p className="text-sm opacity-75">(No results yet)</p>
-          ) : (
-            <div className="space-y-2 max-h-72 overflow-auto">
-              {candidates.map((t) => (
-                <div key={t.id} className="flex items-center justify-between gap-3 bg-neutral-800/60 rounded-xl px-3 py-2">
-                  <div className="truncate">
-                    <div className="truncate text-sm font-medium">{t.name}</div>
-                    <div className="truncate text-xs opacity-75">{t.artists.join(", ")}</div>
-                  </div>
-                  <div className="text-xs tabular-nums opacity-90 font-mono">{t.tempo.toFixed(1)} BPM</div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="mt-4 flex flex-col sm:flex-row gap-3">
-            <input value={newPlaylistName} onChange={(e) => setNewPlaylistName(e.target.value)} className="flex-1 px-3 py-2 rounded-xl bg-neutral-800 outline-none" placeholder={`Playlist name (default: Tempo ${minTempo}-${maxTempo} BPM)`} />
-            <button onClick={createPlaylist} disabled={loading || (!isAuthed)} className="px-4 py-2 rounded-xl bg-green-500 text-black font-semibold disabled:opacity-50">Create Playlist</button>
-          </div>
-          {createdPlaylistUrl ? (
-            <div className="mt-3 text-sm">
-              Done! <a href={createdPlaylistUrl} target="_blank" rel="noreferrer" className="underline">Open your new playlist</a>
-            </div>
-          ) : null}
-        </section>
-
         {/* Gemini Live Log with Grounding */}
         {geminiLogs.length > 0 && (
-          <section className="bg-neutral-900/50 rounded-2xl p-4 mb-6">
+          <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold">🔍 Gemini AI Live Responses with Search Grounding ({geminiLogs.length})</h2>
-              <div className="flex items-center gap-2">
-                <span className="text-xs opacity-60">Real-time BPM analysis with sources</span>
+              <h2 className="text-lg font-bold text-slate-100">🔍 Gemini AI Live Responses with Search Grounding ({geminiLogs.length})</h2>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-300 bg-slate-900/40 border border-slate-600/50 rounded-lg px-3 py-1">Real-time BPM analysis with sources</span>
                 <button 
                   onClick={() => setGeminiLogs([])} 
-                  className="text-xs px-2 py-1 bg-neutral-700 rounded opacity-60 hover:opacity-100"
+                  className="text-xs px-3 py-1 bg-slate-900/40 border border-slate-600/50 rounded-lg text-slate-200 hover:bg-slate-800/60 transition-colors"
                 >
                   Clear
                 </button>
               </div>
             </div>
-            <div className="space-y-1 max-h-96 overflow-auto text-sm font-mono">
+            <div className="space-y-2 max-h-96 overflow-auto text-sm font-mono">
               {geminiLogs.map((log, i) => (
-                <div key={i} className={`rounded-lg px-3 py-2 ${
+                <div key={i} className={`bg-slate-900/40 rounded-lg px-3 py-2 border border-slate-600/50 ${
                   log.error 
-                    ? 'bg-red-900/30 border border-red-500/30' 
+                    ? 'border-red-400/50' 
                     : log.valid 
                       ? log.tier === "PRIMARY"
-                        ? 'bg-blue-900/30 border border-blue-500/30' // Blue for primary
+                        ? 'border-blue-400/50' // Blue for primary
                         : log.tier === "SECONDARY"
-                          ? 'bg-orange-900/30 border border-orange-500/30' // Orange for secondary
+                          ? 'border-orange-400/50' // Orange for secondary
                           : log.tier === "TERTIARY"
-                            ? 'bg-purple-900/30 border border-purple-500/30' // Purple for tertiary
-                            : 'bg-green-900/30 border border-green-500/30' // Green for any other valid
-                      : 'bg-yellow-900/30 border border-yellow-500/30' // Yellow for invalid
+                            ? 'border-purple-400/50' // Purple for tertiary
+                            : 'border-emerald-400/50' // Green for any other valid
+                      : 'border-yellow-400/50' // Yellow for invalid
                 }`}>
                   <div className="flex items-center justify-between gap-3 mb-1">
                     <div className="truncate flex-1">
-                      <span className="font-medium">{log.song}</span>
+                      <span className="font-medium text-slate-300">{log.song}</span>
                       {log.grounded && <span className="ml-2 text-blue-400 text-xs">🔗 SOURCED</span>}
                       {log.tier && <span className="ml-2 text-purple-300 text-xs">{log.tier}</span>}
-                      {log.model && <span className="ml-1 text-gray-400 text-xs">({log.model})</span>}
+                      {log.model && <span className="ml-1 text-slate-400 text-xs">({log.model})</span>}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs opacity-60">{log.timestamp}</span>
+                      <span className="text-xs text-slate-400">{log.timestamp}</span>
                       {log.valid && (
                         <span className={`font-bold ${
                           log.tier === "PRIMARY" ? 'text-blue-400' : 
                           log.tier === "SECONDARY" ? 'text-orange-400' : 
                           log.tier === "TERTIARY" ? 'text-purple-400' : 
-                          'text-green-400'
+                          'text-emerald-400'
                         }`}>
                           {log.parsedBPM} BPM
                         </span>
                       )}
                     </div>
                   </div>
-                  <div className="text-xs opacity-75 space-y-1">
+                  <div className="text-xs text-slate-400 space-y-1">
                     <div>
-                      <span className="text-blue-300">Raw response:</span> "{log.rawResponse}"
+                      <span className="text-slate-300">Raw response:</span> "{log.rawResponse}"
                       {!log.error && !log.valid && (
                         <span className="text-yellow-400 ml-2">⚠️ Invalid BPM format</span>
                       )}
@@ -1085,15 +1799,15 @@ export default function App() {
                     </div>
                     {log.searchQueries && log.searchQueries.length > 0 && (
                       <div>
-                        <span className="text-purple-300">Search queries:</span> {log.searchQueries.join(', ')}
+                        <span className="text-slate-300">Search queries:</span> {log.searchQueries.join(', ')}
                       </div>
                     )}
                     {log.sources && log.sources.length > 0 && (
                       <div>
-                        <span className="text-cyan-300">Sources:</span> 
+                        <span className="text-slate-300">Sources:</span> 
                         {log.sources.map((source, idx) => (
                           <span key={idx} className="ml-1">
-                            <a href={source} target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline">
+                            <a href={source} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">
                               [{idx + 1}]
                             </a>
                           </span>
@@ -1104,31 +1818,208 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <div className="mt-3 text-xs opacity-60">
+            <div className="mt-3 text-xs text-slate-400">
               <span className="text-blue-400">Blue = Primary (gemini-2.5-flash-lite)</span> • 
               <span className="text-orange-400 ml-2">Orange = Secondary (gemini-2.0-flash)</span> • 
               <span className="text-purple-400 ml-2">Purple = Tertiary (gemini-2.5-flash)</span> • 
-              <span className="text-green-400 ml-2">Green = Valid BPM</span> • 
+              <span className="text-emerald-400 ml-2">Green = Valid BPM</span> • 
               <span className="text-yellow-400 ml-2">Yellow = Invalid</span> • 
               <span className="text-red-400 ml-2">Red = Error</span>
             </div>
           </section>
         )}
 
+        {/* Settings */}
+        <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+          <div className="mb-4">
+            <h2 className="text-lg font-bold mb-3 text-slate-100">🔧 API Configuration</h2>
+            <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50 mb-3">
+              <div className="text-sm text-slate-300">
+                <span className="text-slate-300 font-medium">📍 Current Redirect URI:</span> <code className="bg-slate-800/60 px-2 py-1 rounded text-emerald-400">{redirectUri}</code><br/>
+                <span className="text-slate-300 font-medium">⚠️ This MUST exactly match your Spotify app settings!</span><br/>
+                <span className="text-slate-300 font-medium">🤖 BPM Analysis:</span> Now powered by Google Gemini AI with real-time web search grounding for verified tempo data!
+              </div>
+            </div>
+            {(import.meta.env.VITE_SPOTIFY_CLIENT_ID || import.meta.env.VITE_GEMINI_API_KEY) && (
+              <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+                <div className="text-sm text-slate-300">
+                  <span className="text-slate-300 font-medium">✅ Environment Variables Loaded:</span><br/>
+                  {import.meta.env.VITE_SPOTIFY_CLIENT_ID && <span className="text-emerald-400">• Spotify Client ID from .env<br/></span>}
+                  {import.meta.env.VITE_SPOTIFY_REDIRECT_URI && <span className="text-emerald-400">• Redirect URI from .env<br/></span>}
+                  {import.meta.env.VITE_GEMINI_API_KEY && <span className="text-emerald-400">• Gemini API Key from .env<br/></span>}
+                  <span className="text-xs text-slate-400 mt-1 block">You can still override these values in the fields below.</span>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+            <div className="col-span-1 md:col-span-1">
+              <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+                <span className="text-slate-300 font-medium">Spotify Client ID</span>
+                {import.meta.env.VITE_SPOTIFY_CLIENT_ID && <span className="text-emerald-400 ml-1">(.env)</span>}<br/>
+                <input 
+                  value={clientId} 
+                  onChange={(e) => setClientId(e.target.value)} 
+                  className="w-full mt-1 px-2 py-1 rounded bg-slate-800 border border-slate-600 outline-none focus:border-slate-400 text-slate-200 text-xs" 
+                  placeholder={import.meta.env.VITE_SPOTIFY_CLIENT_ID ? "Loaded from .env" : "Your Spotify Client ID"} 
+                />
+              </div>
+            </div>
+            <div className="col-span-1 md:col-span-2">
+              <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+                <span className="text-slate-300 font-medium">Redirect URI (must be whitelisted in your Spotify App)</span>
+                {import.meta.env.VITE_SPOTIFY_REDIRECT_URI && <span className="text-emerald-400 ml-1">(.env)</span>}<br/>
+                <input 
+                  value={redirectUri} 
+                  onChange={(e) => setRedirectUri(e.target.value)} 
+                  className="w-full mt-1 px-2 py-1 rounded bg-slate-800 border border-slate-600 outline-none focus:border-slate-400 text-slate-200 text-xs" 
+                  placeholder={import.meta.env.VITE_SPOTIFY_REDIRECT_URI || DEFAULT_REDIRECT} 
+                />
+              </div>
+            </div>
+            <div className="col-span-1 md:col-span-3">
+              <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+                <span className="text-slate-300 font-medium">Google Gemini API Key (required for BPM analysis)</span>
+                {import.meta.env.VITE_GEMINI_API_KEY && <span className="text-emerald-400 ml-1">(.env)</span>}<br/>
+                <input 
+                  value={geminiApiKey} 
+                  onChange={(e) => setGeminiApiKey(e.target.value)} 
+                  className="w-full mt-1 px-2 py-1 rounded bg-slate-800 border border-slate-600 outline-none focus:border-slate-400 text-slate-200 text-xs" 
+                  placeholder={import.meta.env.VITE_GEMINI_API_KEY ? "Loaded from .env" : "AIza..."} 
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Source Selection */}
+        <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+            <h2 className="text-lg font-bold text-slate-100">Sources</h2>
+            <div className="flex items-center gap-3">
+              <div className="bg-slate-900/40 rounded-lg p-2 border border-slate-600/50">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={includeSaved} onChange={(e) => setIncludeSaved(e.target.checked)} className="accent-emerald-400" /> 
+                  <span className="text-slate-300 font-medium">Include Saved Tracks</span>
+                </label>
+              </div>
+              {loading && playlists.length === 0 && (
+                <div className="bg-slate-900/40 rounded-lg p-2 border border-slate-600/50">
+                  <span className="text-sm text-slate-300">Loading playlists...</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {playlists.length > 0 ? (
+            <div className="max-h-64 overflow-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {playlists.map((p) => (
+                <div key={p.id} className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedPlaylistIds.includes(p.id)}
+                      onChange={(e) => {
+                        setSelectedPlaylistIds((cur) =>
+                          e.target.checked ? [...cur, p.id] : cur.filter((id) => id !== p.id)
+                        );
+                      }}
+                      className="accent-emerald-400"
+                    />
+                    <span className="truncate text-slate-300 font-medium">{p.name}</span>
+                  </label>
+                </div>
+              ))}
+            </div>
+          ) : loading ? (
+            <div className="text-center py-4">
+              <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50 inline-flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-slate-300">Loading your playlists...</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-4">
+              <span className="text-slate-400">(No playlists available)</span>
+            </div>
+          )}
+        </section>
+
+        {/* Legacy Results (Batch Analysis Method) */}
+        <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-bold text-slate-100">Legacy: Batch Tempo Analysis Results</h2>
+            <div className="bg-slate-900/40 rounded-lg p-2 border border-slate-600/50">
+              <span className="text-slate-300 font-medium">{totalFound} tracks</span>
+            </div>
+          </div>
+          <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50 mb-3">
+            <span className="text-slate-300">
+              This is the old method that analyzes all tracks first. Use the Smart Playlist Creator above for the new progressive scanning method.
+            </span>
+          </div>
+          {candidates.length === 0 ? (
+            <div className="text-center py-4">
+              <span className="text-slate-400">(No results yet)</span>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-auto">
+              {candidates.map((t) => (
+                <div key={t.id} className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="truncate">
+                      <div className="truncate font-medium text-slate-300">{t.name}</div>
+                      <div className="truncate text-slate-400">{t.artists.join(", ")}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-emerald-400">{t.tempo.toFixed(1)} BPM</div>
+                      {t.tempoType !== "original" && (
+                        <div className="text-slate-400 mt-1">
+                          {t.tempoType === "half-time" && (
+                            <span className="text-blue-400">½× ({t.originalTempo.toFixed(1)})</span>
+                          )}
+                          {t.tempoType === "double-time" && (
+                            <span className="text-orange-400">2× ({t.originalTempo.toFixed(1)})</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-3 flex flex-col sm:flex-row gap-3">
+            <input value={newPlaylistName} onChange={(e) => setNewPlaylistName(e.target.value)} className="flex-1 px-2 py-1 rounded bg-slate-800 border border-slate-600 outline-none focus:border-slate-400 text-slate-200" placeholder={`Legacy playlist name (default: Tempo ${minTempo}-${maxTempo} BPM)`} />
+            <button onClick={createPlaylist} disabled={loading || (!isAuthed)} className="px-3 py-1 rounded bg-slate-600 text-slate-100 font-medium disabled:opacity-50 hover:bg-slate-500 transition-colors">Create Legacy Playlist</button>
+          </div>
+          {createdPlaylistUrl ? (
+            <div className="mt-3 bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+              <span className="text-slate-300">Done! </span><a href={createdPlaylistUrl} target="_blank" rel="noreferrer" className="underline text-emerald-400 hover:text-emerald-300">Open your new playlist</a>
+            </div>
+          ) : null}
+        </section>
+
         {/* Debug: All Pulled Tracks */}
         {allPulledTracks.length > 0 && (
-          <section className="bg-neutral-900/50 rounded-2xl p-4 mb-6">
+          <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold">📋 All Pulled Tracks ({allPulledTracks.length})</h2>
-              <span className="text-xs opacity-60">Before tempo analysis</span>
+              <h2 className="text-lg font-bold text-slate-100">📋 All Pulled Tracks ({allPulledTracks.length})</h2>
+              <div className="bg-slate-900/40 rounded-lg p-2 border border-slate-600/50">
+                <span className="text-slate-300 font-medium">Before tempo analysis</span>
+              </div>
             </div>
-            <div className="space-y-1 max-h-64 overflow-auto text-sm">
+            <div className="space-y-2 max-h-64 overflow-auto">
               {allPulledTracks.map((t, i) => (
-                <div key={t.id} className="flex items-center gap-3 bg-neutral-800/40 rounded-lg px-3 py-2">
-                  <span className="text-xs opacity-50 w-8">{i + 1}</span>
-                  <div className="truncate flex-1">
-                    <div className="truncate font-medium">{t.name}</div>
-                    <div className="truncate text-xs opacity-75">{t.artists.join(", ")} • {t.album}</div>
+                <div key={t.id} className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-slate-800/60 rounded px-2 py-1 border border-slate-600/50">
+                      <span className="text-slate-300 font-bold">{i + 1}</span>
+                    </div>
+                    <div className="truncate flex-1">
+                      <div className="truncate font-medium text-slate-300">{t.name}</div>
+                      <div className="truncate text-slate-400">{t.artists.join(", ")} • {t.album}</div>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1138,69 +2029,56 @@ export default function App() {
 
         {/* Debug: All Analyzed Tracks */}
         {allAnalyzedTracks.length > 0 && (
-          <section className="bg-neutral-900/50 rounded-2xl p-4 mb-6">
+          <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold">🎵 All Analyzed Tracks ({allAnalyzedTracks.length})</h2>
-              <span className="text-xs opacity-60">With tempo data, sorted by BPM</span>
+              <h2 className="text-lg font-bold text-slate-100">🎵 All Analyzed Tracks ({allAnalyzedTracks.length})</h2>
+              <div className="bg-slate-900/40 rounded-lg p-2 border border-slate-600/50">
+                <span className="text-slate-300 font-medium">With tempo data, sorted by BPM</span>
+              </div>
             </div>
-            <div className="space-y-1 max-h-64 overflow-auto text-sm">
+            <div className="space-y-2 max-h-64 overflow-auto">
               {allAnalyzedTracks.map((t, i) => (
-                <div key={t.id} className={`flex items-center justify-between gap-3 rounded-lg px-3 py-2 ${
+                <div key={t.id} className={`bg-slate-900/40 rounded-lg p-3 border transition-colors ${
                   t.tempo >= minTempo && t.tempo <= maxTempo 
-                    ? 'bg-green-900/30 border border-green-500/30' 
-                    : 'bg-neutral-800/40'
+                    ? 'border-emerald-400/50' 
+                    : 'border-slate-600/50'
                 }`}>
-                  <div className="truncate flex-1">
-                    <div className="truncate font-medium">{t.name}</div>
-                    <div className="truncate text-xs opacity-75">{t.artists.join(", ")}</div>
-                  </div>
-                  <div className="text-xs tabular-nums font-mono">
-                    <span className={t.tempo >= minTempo && t.tempo <= maxTempo ? 'text-green-400' : 'opacity-60'}>
-                      {t.tempo.toFixed(1)} BPM
-                    </span>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="truncate flex-1">
+                      <div className="truncate font-medium text-slate-300">{t.name}</div>
+                      <div className="truncate text-slate-400">{t.artists.join(", ")}</div>
+                    </div>
+                    <div className="text-right">
+                      <span className={`font-bold ${
+                        t.tempo >= minTempo && t.tempo <= maxTempo 
+                          ? 'text-emerald-400' 
+                          : 'text-slate-400'
+                      }`}>
+                        {t.tempo.toFixed(1)} BPM
+                      </span>
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="mt-3 text-xs opacity-60">
-              <span className="text-green-400">Green = matches your {minTempo}-{maxTempo} BPM range</span>
+            <div className="mt-3 bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+              <span className="text-slate-300">✅ </span>
+              <span className="text-emerald-400">Green = matches your {minTempo}-{maxTempo} BPM range</span>
             </div>
           </section>
         )}
 
         {/* Activity Log */}
-        <section className="bg-neutral-900/50 rounded-2xl p-4">
-          <h2 className="text-lg font-semibold mb-2">Activity</h2>
-          <div className="space-y-1 text-sm max-h-48 overflow-auto">
+        <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+          <h2 className="text-lg font-bold mb-3 text-slate-100">Activity</h2>
+          <div className="space-y-2 max-h-48 overflow-auto">
             {log.map((l, i) => (
-              <div key={i} className="opacity-80">• {l}</div>
+              <div key={i} className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
+                <span className="text-slate-300">• {l}</span>
+              </div>
             ))}
           </div>
         </section>
-
-        <footer className="mt-8 text-xs opacity-60">
-          <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4 mb-4">
-            <h3 className="text-red-400 font-semibold mb-2">🚨 Getting "Invalid redirect URI" error?</h3>
-            <div className="space-y-2 text-red-300">
-              <p><strong>⚠️ IMPORTANT:</strong> Spotify no longer allows <code>localhost</code> - use IP address instead!</p>
-              <p><strong>1. Current redirect URI:</strong> <code className="bg-red-800/30 px-1 rounded">{redirectUri}</code></p>
-              <p><strong>2. Go to:</strong> <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer" className="underline">Spotify Developer Dashboard</a></p>
-              <p><strong>3. In your app settings, add exactly:</strong> <code className="bg-red-800/30 px-1 rounded">http://127.0.0.1:3000</code></p>
-              <p><strong>4. NOT localhost:</strong> ❌ <code>http://localhost:3000</code> (no longer allowed)</p>
-              <p><strong>5. Save settings and try again</strong></p>
-            </div>
-          </div>
-          <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4 mb-4">
-            <h3 className="text-blue-400 font-semibold mb-2">🤖 Google Gemini API Setup</h3>
-            <div className="space-y-2 text-blue-300">
-              <p><strong>1. Get API Key:</strong> Visit <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="underline">Google AI Studio</a></p>
-              <p><strong>2. Create new API key</strong> for your project</p>
-              <p><strong>3. Copy and paste</strong> the key into the Gemini API Key field above</p>
-              <p><strong>🔍 BPM Analysis:</strong> Gemini AI with Google Search grounding finds verified BPM data from music databases in real-time</p>
-            </div>
-          </div>
-          <p>This app uses Google Gemini AI for BPM estimation based on song metadata, combined with Spotify's Authorization Code PKCE flow for secure authentication. All tokens are stored locally in your browser.</p>
-        </footer>
       </div>
     </div>
   );
