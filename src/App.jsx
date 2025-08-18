@@ -932,7 +932,7 @@ export default function App() {
         
         const page = await spGet(url, { limit: 50, offset: out.length }); // Default Spotify limit
         out.push(...page.items);
-        next = page.items.length === 20 && out.length < maxPlaylists;
+        next = page.items.length === 50 && out.length < maxPlaylists; // Fixed: should check for 50, not 20
         await sleep(500); // 500ms between each request
       }
       
@@ -943,7 +943,8 @@ export default function App() {
       setPlaylists(out);
       addLog(`Loaded ${out.length} playlists.`);
     } catch (e) {
-      addLog("Failed to load playlists.");
+      addLog(`Failed to load playlists: ${e.message}`);
+      console.error("Error loading playlists:", e);
     } finally {
       setLoading(false);
     }
@@ -1122,15 +1123,28 @@ export default function App() {
 
   // -------------------- Progressive Duration-Based Playlist Creation --------------------
   async function findMatchingSongs() {
+    // Basic validation checks
     if (!me) {
-      alert("Not logged in.");
+      alert("Not logged in. Please connect to Spotify first.");
+      addLog("❌ Attempted to find songs without being logged in");
       return;
     }
     
     if (!geminiApiKey) {
       alert("Please enter your Google Gemini API key in Settings first.");
+      addLog("❌ Attempted to find songs without Gemini API key");
       return;
     }
+
+    if (!accessToken) {
+      alert("No access token available. Please log in again.");
+      addLog("❌ No access token available");
+      return;
+    }
+    
+    addLog(`🚀 Starting song search for ${selectedDuration}-minute playlist...`);
+    addLog(`🎵 Target BPM range: ${minTempo}-${maxTempo}`);
+    addLog(`📋 Playlist order: ${playlistOrder}`);
     
     // Create abort controller for cancelling requests
     const controller = new AbortController();
@@ -1154,12 +1168,17 @@ export default function App() {
         // 1. Get the most recent playlist (start with initial 100 playlists)
         if (!playlists.length) {
           setCurrentSourcePlaylist({ name: "Loading playlists...", trackCount: "Unknown" });
+          addLog("📋 No playlists in memory, loading initial set...");
           await loadPlaylists(100); // Initial load: 100 playlists max
           if (!playlists.length) {
-            addLog("❌ No playlists found. Please load your playlists first.");
+            addLog("❌ No playlists found after loading. Please check your Spotify account has playlists.");
             setPlaylistCreationStep("select");
+            setCurrentSourcePlaylist(null);
             return;
           }
+          addLog(`✅ Successfully loaded ${playlists.length} playlists`);
+        } else {
+          addLog(`✅ Using ${playlists.length} playlists already in memory`);
         }
         
         // Sort playlists based on user preference
@@ -1497,9 +1516,11 @@ export default function App() {
     } catch (error) {
       console.error("Error finding matching songs:", error);
       addLog(`❌ Error finding songs: ${error.message}`);
+      addLog(`🔍 Debug info: Error occurred at ${new Date().toISOString()}`);
       setScanningPhase("complete");
       setCurrentSourcePlaylist(null);
       setPlaylistCreationStep("select");
+      setLoading(false);
     } finally {
       setAbortController(null); // Clear abort controller
     }
@@ -1886,7 +1907,7 @@ export default function App() {
 
         {/* Playlist Processing Order */}
         <div className="mb-6" p="lg">
-          <Title order={3} mb="md">Song Source</Title>
+          <Title order={3} mb="md">Search Order</Title>
           <Group gap="sm" grow>
             <Card
               className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
@@ -1976,43 +1997,53 @@ export default function App() {
           </Group>
         </div>
 
-        {/* Duration-Based Playlist Creator */}
+        {/* Playlist Length */}
         <div className="mb-6" p="lg">
           <Title order={3} mb="md">Playlist Length</Title>
+          <Group gap="sm" grow>
+            {[15, 30, 60].map((duration) => (
+              <Card
+                key={duration}
+                className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
+                style={{
+                  cursor: 'pointer',
+                  backgroundColor: selectedDuration === duration ? 'var(--mantine-color-brand-0)' : undefined,
+                  borderColor: selectedDuration === duration ? 'var(--mantine-color-brand-3)' : undefined,
+                  borderWidth: selectedDuration === duration ? 2 : 1,
+                  flex: 1
+                }}
+                onClick={() => setSelectedDuration(duration)}
+                p="md"
+              >
+                <Text 
+                  size="sm" 
+                  fw={500}
+                  c={selectedDuration === duration ? 'brand.7' : undefined}
+                  ta="center"
+                >
+                  {duration} minutes
+                </Text>
+              </Card>
+            ))}
+          </Group>
+        </div>
+
+        {/* Create Playlist */}
+        <div className="mb-6" p="lg">
+          <Title order={3} mb="md">Create Playlist</Title>
           <Stack gap="md">
-            
+            {(playlistCreationStep === "review" || playlistCreationStep === "creating" || playlistCreationStep === "complete") && (
+              <TextInput
+                label="Playlist Name"
+                placeholder={`My ${Math.round(minTempo)}-${Math.round(maxTempo)} BPM Mix`}
+                value={newPlaylistName}
+                onChange={(e) => setNewPlaylistName(e.target.value)}
+                required
+              />
+            )}
             
             {playlistCreationStep === "select" && (
               <div className="space-y-4">
-                <div>
-                  <Group gap="sm" grow>
-                    {[15, 30, 60].map((duration) => (
-                      <Card
-                        key={duration}
-                        className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
-                        style={{
-                          cursor: 'pointer',
-                          backgroundColor: selectedDuration === duration ? 'var(--mantine-color-brand-0)' : undefined,
-                          borderColor: selectedDuration === duration ? 'var(--mantine-color-brand-3)' : undefined,
-                          borderWidth: selectedDuration === duration ? 2 : 1,
-                          flex: 1
-                        }}
-                        onClick={() => setSelectedDuration(duration)}
-                        p="md"
-                      >
-                        <Text 
-                          size="sm" 
-                          fw={500}
-                          c={selectedDuration === duration ? 'brand.7' : undefined}
-                          ta="center"
-                        >
-                          {duration} minutes
-                        </Text>
-                      </Card>
-                    ))}
-                  </Group>
-                </div>
-                
                 <div className="flex gap-3">
                   <Button 
                     size="lg"
@@ -2037,8 +2068,6 @@ export default function App() {
                     </Button>
                   )}
                 </div>
-                
-                
               </div>
             )}
             
@@ -2233,14 +2262,10 @@ export default function App() {
                   label="Playlist name"
                   value={newPlaylistName}
                   onChange={(e) => setNewPlaylistName(e.target.value)}
-                  placeholder={`Smart ${Math.round(finalTrackSelection.reduce((sum, t) => sum + (t.duration_ms || 0), 0) / 60000)}min Mix (${minTempo}-${maxTempo} BPM)`}
-                  size="lg"
+                  placeholder={`Smart ${Math.round(finalTrackSelection.reduce((sum, t) => sum + (t.duration_ms || 0), 0) / 60000)}min Mix (${Math.round(minTempo)}-${Math.round(maxTempo)} BPM)`}
+                  size="md"
                   styles={{
-                    input: {
-                      fontSize: '18px',
-                      padding: '16px 20px',
-                      minHeight: '60px'
-                    },
+                  
                     label: {
                       fontSize: '16px',
                       fontWeight: 600,
@@ -2251,6 +2276,7 @@ export default function App() {
                 
                 <div className="flex gap-3">
                   <Button 
+                    size="md"
                     variant="bordered"
                     onClick={() => {
                       setPlaylistCreationStep("select");
@@ -2265,6 +2291,7 @@ export default function App() {
                     Start Over
                   </Button>
                   <Button 
+                    size="md"
                     color="brand"
                     loading={loading}
                     onClick={createPlaylistFromSelection}
