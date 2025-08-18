@@ -1883,9 +1883,92 @@ export default function App() {
           </Stack>
         </div>
 
+        {/* Playlist Processing Order */}
+        <div className="mb-6" p="lg">
+          <Title order={3} mb="md">Playlist Order</Title>
+          <Group gap="sm" grow>
+            <Card
+              className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
+              style={{
+                cursor: 'pointer',
+                backgroundColor: playlistOrder === "recent" ? 'var(--mantine-color-brand-0)' : undefined,
+                borderColor: playlistOrder === "recent" ? 'var(--mantine-color-brand-3)' : undefined,
+                borderWidth: playlistOrder === "recent" ? 2 : 1,
+                flex: 1,
+                minHeight: '200px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between'
+              }}
+              onClick={() => setPlaylistOrder("recent")}
+              p="md"
+            >
+              {/* Recent Image */}
+              <Center mb="sm">
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100px', height: '100px' }}>
+                  <img 
+                    src={import.meta.env.BASE_URL + "Adobe Express - file.png"}
+                    alt="Most Recently Added" 
+                    style={{ 
+                      width: '60px',
+                      height: '60px',
+                      objectFit: 'contain',
+                      filter: playlistOrder === "recent" ? 'none' : 'grayscale(100%)',
+                      transform: playlistOrder === "recent" ? 'scale(1)' : 'scale(0.8)',
+                      transition: 'filter 0.3s ease, transform 0.3s ease'
+                    }}
+                  />
+                </div>
+              </Center>
+            </Card>
+            <Card
+              className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
+              style={{
+                cursor: 'pointer',
+                backgroundColor: playlistOrder === "random" ? 'var(--mantine-color-brand-0)' : undefined,
+                borderColor: playlistOrder === "random" ? 'var(--mantine-color-brand-3)' : undefined,
+                borderWidth: playlistOrder === "random" ? 2 : 1,
+                flex: 1,
+                minHeight: '200px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between'
+              }}
+              onClick={() => setPlaylistOrder("random")}
+              p="md"
+            >
+              {/* Lottie Animation */}
+              <Center mb="sm">
+                <DotLottieReact
+                  src="https://lottie.host/5917647c-35af-4a54-9444-c3992b645ea3/WrdSEbt9KY.lottie"
+                  loop
+                  autoplay
+                  style={{ 
+                    width: '80px',
+                    height: '80px',
+                    filter: playlistOrder === "random" ? 'none' : 'grayscale(100%)',
+                    transform: playlistOrder === "random" ? 'scale(1)' : 'scale(0.8)',
+                    transition: 'filter 0.3s ease, transform 0.3s ease'
+                  }}
+                />
+              </Center>
+              <div>
+                <Text 
+                  size="md" 
+                  fw={500}
+                  c={playlistOrder === "random" ? 'brand.7' : undefined}
+                  ta="center"
+                >
+                  Randomize
+                </Text>
+              </div>
+            </Card>
+          </Group>
+        </div>
+
         {/* Duration-Based Playlist Creator */}
         <div className="mb-6" p="lg">
-          <Title order={3} mb="md">Playlist Duration</Title>
+          <Title order={3} mb="md">Playlist Length</Title>
           <Stack gap="md">
             
             
@@ -1917,91 +2000,6 @@ export default function App() {
                         </Text>
                       </Card>
                     ))}
-                  </Group>
-                </div>
-                
-                {/* Playlist Order Selection */}
-                <div>
-                  <Text size="sm" fw={500} mb="sm">Playlist Processing Order:</Text>
-                  <Group gap="sm" grow>
-                    <Card
-                      className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
-                      style={{
-                        cursor: 'pointer',
-                        backgroundColor: playlistOrder === "recent" ? 'var(--mantine-color-brand-0)' : undefined,
-                        borderColor: playlistOrder === "recent" ? 'var(--mantine-color-brand-3)' : undefined,
-                        borderWidth: playlistOrder === "recent" ? 2 : 1,
-                        flex: 1
-                      }}
-                      onClick={() => setPlaylistOrder("recent")}
-                      p="md"
-                    >
-                      {/* Recent Image */}
-                      <Center mb="sm">
-                        <img 
-                          src={import.meta.env.BASE_URL + "Adobe Express - file.png"}
-                          alt="Most Recently Added" 
-                          style={{ 
-                            width: '60px',
-                            height: '60px',
-                            objectFit: 'contain',
-                            filter: playlistOrder === "recent" ? 'none' : 'grayscale(100%)',
-                            transform: playlistOrder === "recent" ? 'scale(1)' : 'scale(0.8)',
-                            transition: 'filter 0.3s ease, transform 0.3s ease'
-                          }}
-                        />
-                      </Center>
-                      <Text 
-                        size="md" 
-                        fw={500}
-                        c={playlistOrder === "recent" ? 'brand.7' : undefined}
-                        ta="center"
-                      >
-                        Most Recently Added
-                      </Text>
-                      <Text size="xs" c="dimmed" ta="center" mt="xs">
-                        Process newest playlists first
-                      </Text>
-                    </Card>
-                    <Card
-                      className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
-                      style={{
-                        cursor: 'pointer',
-                        backgroundColor: playlistOrder === "random" ? 'var(--mantine-color-brand-0)' : undefined,
-                        borderColor: playlistOrder === "random" ? 'var(--mantine-color-brand-3)' : undefined,
-                        borderWidth: playlistOrder === "random" ? 2 : 1,
-                        flex: 1
-                      }}
-                      onClick={() => setPlaylistOrder("random")}
-                      p="md"
-                    >
-                      {/* Lottie Animation */}
-                      <Center mb="sm">
-                        <DotLottieReact
-                          src="https://lottie.host/5917647c-35af-4a54-9444-c3992b645ea3/WrdSEbt9KY.lottie"
-                          loop
-                          autoplay
-                          style={{ 
-                            width: '100px',
-                            height: '100px',
-                            filter: playlistOrder === "random" ? 'none' : 'grayscale(100%)',
-                            transform: playlistOrder === "random" ? 'scale(1)' : 'scale(0.8)',
-                            transition: 'filter 0.3s ease, transform 0.3s ease'
-                          }}
-                        />
-                      </Center>
-                      <Text 
-                        size="md" 
-                        fw={500}
-                        c={playlistOrder === "random" ? 'brand.7' : undefined}
-                        ta="center"
-                      >
-                        Randomize
-                      </Text>
-                      <Text size="xs" c="dimmed" ta="center" mt="xs">
-                        Process playlists in random order
-                      </Text>
-                    </Card>
                   </Group>
                 </div>
                 
