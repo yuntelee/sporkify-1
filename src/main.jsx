@@ -1,5 +1,5 @@
-import React from 'react'
-import ReactDOM from 'react-dom/client'
+import React from "react"
+import ReactDOM from "react-dom/client"
 import { MantineProvider, createTheme, Container, Paper, Card, Select, Button, rem } from '@mantine/core';
 import App from './App.jsx'
 import './index.css'
@@ -16,7 +16,7 @@ const CONTAINER_SIZES = {
 };
 
 // Function to determine if it's day or night
-const mantineTheme = createTheme({
+const mantineTheme = createTheme({x
   /** Put your mantine theme override here */
   fontSizes: {
     xs: rem("12px"),
