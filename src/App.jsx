@@ -53,7 +53,7 @@ const chunk = (arr, size) => {
 const uniq = (arr) => Array.from(new Set(arr));
 
 // -------------------- Google Gemini BPM Utility with Three-Tier Grounding --------------------
-async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog = null, abortSignal = null) {
+async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog = null, abortSignal = null, updateLiveStatus = null) {
   if (!geminiApiKey) {
     throw new Error("Gemini API key is required");
   }
@@ -61,6 +61,21 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
   // Check if request was cancelled before starting
   if (abortSignal?.aborted) {
     throw new Error("Request cancelled before starting");
+  }
+
+  const songKey = `${title} - ${artist}`;
+  
+  // Initialize live status
+  if (updateLiveStatus) {
+    console.log('🎵 Initializing live status for:', songKey);
+    updateLiveStatus(songKey, {
+      songName: title,
+      artist: artist,
+      primary: 'running',
+      secondary: 'pending',
+      tertiary: 'pending',
+      finalBPM: null
+    });
   }
 
   const genAI = new GoogleGenerativeAI(geminiApiKey);
@@ -133,16 +148,30 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
       throw new Error("Request cancelled during PRIMARY tier");
     }
     
+    // Update status: Sending to API
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        primary: 'sending...'
+      });
+    }
+    
     const primaryModel = genAI.getGenerativeModel({ 
       model: "gemini-2.5-flash-lite",
       generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 100,
+        temperature: 0.05, // Lower temperature for faster, more focused responses
+        maxOutputTokens: 50, // Reduced tokens for faster responses
       },
       tools: [groundingTool],
     });
 
     const primaryResult = await primaryModel.generateContent(basePrompt);
+    
+    // Update status: Response received
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        primary: 'processing...'
+      });
+    }
     
     // Check for cancellation after API call
     if (abortSignal?.aborted) {
@@ -169,11 +198,31 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
 
     if (!isNaN(bpm) && bpm > 0 && bpm < 300) {
       console.log(`✅ PRIMARY successful: ${bpm} BPM`);
+      if (updateLiveStatus) {
+        updateLiveStatus(songKey, {
+          primary: 'success',
+          secondary: 'skipped',
+          tertiary: 'skipped',
+          finalBPM: bpm
+        });
+      }
       return bpm;
     }
     console.log(`❌ PRIMARY failed - invalid BPM: "${bpmText}"`);
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        primary: 'failed',
+        secondary: 'running'
+      });
+    }
   } catch (primaryErr) {
     console.error(`🚨 PRIMARY failed for "${title}":`, primaryErr);
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        primary: 'error',
+        secondary: 'running'
+      });
+    }
   }
 
   // Tier 2: Secondary - Gemini 2.0 Flash with grounding
@@ -185,16 +234,30 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
       throw new Error("Request cancelled during SECONDARY tier");
     }
     
+    // Update status: Sending to API
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        secondary: 'sending...'
+      });
+    }
+    
     const secondaryModel = genAI.getGenerativeModel({ 
       model: "gemini-2.0-flash",
       generationConfig: {
-        temperature: 0.15,
-        maxOutputTokens: 90,
+        temperature: 0.1, // Slightly higher for secondary
+        maxOutputTokens: 60, // Reduced tokens for faster responses
       },
       tools: [groundingTool],
     });
 
     const secondaryResult = await secondaryModel.generateContent(basePrompt);
+    
+    // Update status: Response received
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        secondary: 'processing...'
+      });
+    }
     
     // Check for cancellation after API call
     if (abortSignal?.aborted) {
@@ -222,11 +285,30 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
 
     if (!isNaN(bpm) && bpm > 0 && bpm < 300) {
       console.log(`✅ SECONDARY successful: ${bpm} BPM`);
+      if (updateLiveStatus) {
+        updateLiveStatus(songKey, {
+          secondary: 'success',
+          tertiary: 'skipped',
+          finalBPM: bpm
+        });
+      }
       return bpm;
     }
     console.log(`❌ SECONDARY failed - invalid BPM: "${bpmText}"`);
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        secondary: 'failed',
+        tertiary: 'running'
+      });
+    }
   } catch (secondaryErr) {
     console.error(`🚨 SECONDARY failed for "${title}":`, secondaryErr);
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        secondary: 'error',
+        tertiary: 'running'
+      });
+    }
   }
 
   // Tier 3: Tertiary - Gemini 2.5 Flash with grounding
@@ -238,16 +320,30 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
       throw new Error("Request cancelled during TERTIARY tier");
     }
     
+    // Update status: Sending to API
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        tertiary: 'sending...'
+      });
+    }
+    
     const tertiaryModel = genAI.getGenerativeModel({ 
       model: "gemini-2.5-flash",
       generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 80,
+        temperature: 0.15, // Slightly higher for tertiary fallback
+        maxOutputTokens: 50, // Reduced tokens for faster responses
       },
       tools: [groundingTool],
     });
 
     const tertiaryResult = await tertiaryModel.generateContent(basePrompt);
+    
+    // Update status: Response received
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        tertiary: 'processing...'
+      });
+    }
     
     // Check for cancellation after API call
     if (abortSignal?.aborted) {
@@ -275,16 +371,39 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
 
     if (!isNaN(bpm) && bpm > 0 && bpm < 300) {
       console.log(`✅ TERTIARY successful: ${bpm} BPM`);
+      if (updateLiveStatus) {
+        updateLiveStatus(songKey, {
+          tertiary: 'success',
+          finalBPM: bpm
+        });
+      }
       return bpm;
     }
     console.log(`❌ TERTIARY failed - invalid BPM: "${bpmText}"`);
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        tertiary: 'failed',
+        finalBPM: null
+      });
+    }
   } catch (tertiaryErr) {
     console.error(`🚨 TERTIARY failed for "${title}":`, tertiaryErr);
+    if (updateLiveStatus) {
+      updateLiveStatus(songKey, {
+        tertiary: 'error',
+        finalBPM: null
+      });
+    }
   }
 
   // All tiers failed - add error log and return null
   console.error(`❌ ALL TIERS FAILED for "${title}" by ${artist}`);
   
+  if (updateLiveStatus) {
+    updateLiveStatus(songKey, {
+      finalBPM: null
+    });
+  }
   if (addGeminiLog) {
     addGeminiLog({
       timestamp: new Date().toLocaleTimeString(),
@@ -300,76 +419,74 @@ async function getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog =
   return null;
 }
 
-async function fetchTemposForTracksWithGemini(tracks, geminiApiKey, addGeminiLog = null, abortSignal = null) {
+async function fetchTemposForTracksWithGemini(tracks, geminiApiKey, addGeminiLog = null, abortSignal = null, updateLiveStatus = null) {
   if (!tracks || tracks.length === 0) return {};
   
   const tempos = {};
-  const batchSize = 20; // Process 5 tracks in parallel per batch
-  
-  for (let i = 0; i < tracks.length; i += batchSize) {
-    // Check for cancellation before each batch
-    if (abortSignal?.aborted) {
-      console.log(`🚫 Batch processing cancelled at batch ${Math.floor(i/batchSize) + 1}`);
-      break;
-    }
+  const maxConcurrent = 50; // Maximum concurrent requests
+  let currentIndex = 0;
+  let activePromises = new Set();
+  let completed = 0;
+
+  console.log(`\n� Starting rolling batch processing for ${tracks.length} tracks with max ${maxConcurrent} concurrent requests...`);
+
+  // Function to process a single track
+  const processTrack = async (track, index) => {
+    const title = track.name;
+    const artist = track.artists?.[0]?.name || track.artists?.[0] || 'Unknown Artist';
     
-    const batch = tracks.slice(i, i + batchSize);
-    
-    console.log(`\n📦 Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(tracks.length/batchSize)}:`);
-    batch.forEach((track, idx) => {
-      console.log(`   ${i + idx + 1}. "${track.name}" by ${track.artists?.[0]?.name || track.artists?.[0] || 'Unknown Artist'}`);
-    });
-    
-    const batchPromises = batch.map(async (track) => {
-      const title = track.name;
-      const artist = track.artists?.[0]?.name || track.artists?.[0] || 'Unknown Artist';
+    try {
+      const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog, abortSignal, updateLiveStatus);
+      if (bpm !== null) {
+        tempos[track.id] = bpm;
+      }
       
-      try {
-        const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog, abortSignal);
-        if (bpm !== null) {
-          tempos[track.id] = bpm;
-        }
-        return { trackId: track.id, bpm, title, artist };
-      } catch (error) {
-        if (error.message.includes("cancelled")) {
-          console.log(`🚫 Request cancelled for ${title} by ${artist}`);
-          return { trackId: track.id, bpm: null, title, artist, cancelled: true };
-        }
-        console.error(`❌ Error getting BPM for ${title} by ${artist}:`, error);
-        return { trackId: track.id, bpm: null, title, artist };
+      completed++;
+      console.log(`✅ [${completed}/${tracks.length}] "${title}": ${bpm ? `${bpm} BPM` : 'Failed'}`);
+      
+      return { trackId: track.id, bpm, title, artist, index };
+    } catch (error) {
+      completed++;
+      if (error.message.includes("cancelled")) {
+        console.log(`🚫 [${completed}/${tracks.length}] "${title}": Cancelled`);
+        return { trackId: track.id, bpm: null, title, artist, cancelled: true, index };
+      }
+      console.error(`❌ [${completed}/${tracks.length}] "${title}": ${error.message}`);
+      return { trackId: track.id, bpm: null, title, artist, index };
+    }
+  };
+
+  // Start initial batch
+  while (currentIndex < tracks.length && activePromises.size < maxConcurrent) {
+    if (abortSignal?.aborted) break;
+    
+    const track = tracks[currentIndex];
+    const promise = processTrack(track, currentIndex);
+    activePromises.add(promise);
+    currentIndex++;
+    
+    // When this promise completes, start the next track immediately
+    promise.finally(() => {
+      activePromises.delete(promise);
+      
+      // Start next track if available and not cancelled
+      if (currentIndex < tracks.length && !abortSignal?.aborted) {
+        const nextTrack = tracks[currentIndex];
+        const nextPromise = processTrack(nextTrack, currentIndex);
+        activePromises.add(nextPromise);
+        currentIndex++;
+        
+        nextPromise.finally(() => activePromises.delete(nextPromise));
       }
     });
-    
-    const batchResults = await Promise.all(batchPromises);
-    
-    // Check if any requests were cancelled
-    const cancelledCount = batchResults.filter(r => r.cancelled).length;
-    if (cancelledCount > 0) {
-      console.log(`🚫 ${cancelledCount} requests in batch were cancelled`);
-    }
-    
-    // Log batch summary
-    const successCount = batchResults.filter(r => r.bpm !== null).length;
-    console.log(`\n✅ Batch ${Math.floor(i/batchSize) + 1} completed: ${successCount}/${batch.length} successful`);
-    batchResults.forEach((result, idx) => {
-      if (result.cancelled) {
-        console.log(`   🚫 ${result.title}: Cancelled`);
-      } else if (result.bpm !== null) {
-        console.log(`   ✓ ${result.title}: ${result.bpm} BPM`);
-      } else {
-        console.log(`   ✗ ${result.title}: Failed to get BPM`);
-      }
-    });
-    
-    // Rate limiting: wait between batches (but not if cancelled)
-    if (i + batchSize < tracks.length && !abortSignal?.aborted) {
-      console.log(`⏳ Waiting 1 second before next batch...`);
-      await sleep(1000); // 1 second between batches
-    }
-    
-    console.log(`📊 Progress: ${Math.min(i + batchSize, tracks.length)}/${tracks.length} tracks processed`);
   }
-  
+
+  // Wait for all active promises to complete
+  while (activePromises.size > 0 && !abortSignal?.aborted) {
+    await Promise.race(activePromises);
+  }
+
+  console.log(`\n🎉 Rolling batch processing completed: ${Object.keys(tempos).length}/${tracks.length} tracks successful`);
   return tempos;
 }
 
@@ -519,10 +636,11 @@ export default function App() {
   const [selectedPlaylistIds, setSelectedPlaylistIds] = useState([]);
   const [includeSaved, setIncludeSaved] = useState(true);
 
-  const [tempoRange, setTempoRange] = useState([100, 130]);
+  const [tempoRange, setTempoRange] = useState([150, 170]);
   const [isCustomRangeSelected, setIsCustomRangeSelected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [log, setLog] = useState([]);
+  const [abortController, setAbortController] = useState(null); // For cancelling API requests
 
   const [candidates, setCandidates] = useState([]); // {id, uri, name, artists:[], tempo}
   const [newPlaylistName, setNewPlaylistName] = useState("");
@@ -541,12 +659,46 @@ export default function App() {
   const [allPulledTracks, setAllPulledTracks] = useState([]); // All tracks before tempo analysis
   const [allAnalyzedTracks, setAllAnalyzedTracks] = useState([]); // All tracks with tempo data
   const [geminiLogs, setGeminiLogs] = useState([]); // Live Gemini API responses
+  const [geminiLiveStatus, setGeminiLiveStatus] = useState({}); // Live status table for each song
+
+  // Debug: Watch for changes in geminiLiveStatus
+  useEffect(() => {
+    console.log('🔄 geminiLiveStatus changed:', geminiLiveStatus);
+    console.log('🔄 Number of songs in status:', Object.keys(geminiLiveStatus).length);
+  }, [geminiLiveStatus]);
 
   // Derived tempo values from tempoRange
   const [minTempo, maxTempo] = tempoRange;
 
   const addLog = (msg) => setLog((l) => [msg, ...l]);
   const addGeminiLog = (logEntry) => setGeminiLogs((logs) => [logEntry, ...logs.slice(0, 49)]); // Keep last 50 entries
+  
+  // Function to cancel ongoing API requests
+  const cancelSearch = () => {
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+      setLoading(false);
+      addLog("🚫 Search cancelled by user");
+    }
+  };
+  
+  // Function to update live status for a song
+  const updateGeminiLiveStatus = (songKey, updates) => {
+    console.log('🔄 updateGeminiLiveStatus called:', songKey, updates);
+    setGeminiLiveStatus(prev => {
+      const newState = {
+        ...prev,
+        [songKey]: {
+          ...prev[songKey],
+          ...updates,
+          updatedAt: new Date().toLocaleTimeString()
+        }
+      };
+      console.log('🔄 New geminiLiveStatus state:', newState);
+      return newState;
+    });
+  };
 
   // Persist settings
   useEffect(() => {
@@ -778,8 +930,9 @@ export default function App() {
   }
 
   async function getAllTracksFromPlaylists(ids) {
-    const trackItems = [];
-    for (const pid of ids) {
+    // Process all playlists concurrently
+    const playlistPromises = ids.map(async (pid) => {
+      const trackItems = [];
       let offset = 0;
       let more = true;
       while (more) {
@@ -793,8 +946,12 @@ export default function App() {
         offset += 100;
         await sleep(50);
       }
-    }
-    return trackItems;
+      return trackItems;
+    });
+
+    // Wait for all playlists to complete and flatten results
+    const results = await Promise.all(playlistPromises);
+    return results.flat();
   }
 
   async function getAllSavedTracks() {
@@ -818,12 +975,17 @@ export default function App() {
       return;
     }
     
+    // Create abort controller for cancelling requests
+    const controller = new AbortController();
+    setAbortController(controller);
+    
     setLoading(true);
     setCandidates([]);
     setCreatedPlaylistUrl("");
     setAllPulledTracks([]);
     setAllAnalyzedTracks([]);
     setGeminiLogs([]); // Clear previous Gemini logs
+    setGeminiLiveStatus({}); // Clear previous live status
 
     try {
       const sources = [];
@@ -862,7 +1024,7 @@ export default function App() {
       addLog(`🤖 Analyzing tempo with Google Gemini for ${uniqueTracks.length} tracks...`);
       addLog(`⏳ This may take a few minutes for large collections...`);
       
-      const tempos = await fetchTemposForTracksWithGemini(uniqueTracks, geminiApiKey, addGeminiLog);
+      const tempos = await fetchTemposForTracksWithGemini(uniqueTracks, geminiApiKey, addGeminiLog, controller.signal, updateGeminiLiveStatus);
       
       addLog(`✅ Retrieved tempo data for ${Object.keys(tempos).length} tracks via Gemini AI`);
 
@@ -901,20 +1063,27 @@ export default function App() {
       }
     } catch (e) {
       console.error("Error in loadCandidates:", e);
-      addLog(`❌ Error loading candidates: ${e.message}`);
-      addLog(`🔍 Error details: ${e.stack || 'No stack trace available'}`);
       
-      // Check if it's a token issue
-      if (e.message.includes('401') || e.message.includes('Unauthorized')) {
-        addLog("🔑 This looks like an authentication issue. Try refreshing your login.");
-      }
-      
-      // Check if it's a Gemini API issue
-      if (e.message.includes('Gemini') || e.message.includes('API key')) {
-        addLog("🤖 This looks like a Gemini API issue. Check your API key and quota.");
+      // Check if it was cancelled
+      if (e.name === 'AbortError' || e.message.includes('cancelled')) {
+        addLog(`🚫 Search cancelled by user`);
+      } else {
+        addLog(`❌ Error loading candidates: ${e.message}`);
+        addLog(`🔍 Error details: ${e.stack || 'No stack trace available'}`);
+        
+        // Check if it's a token issue
+        if (e.message.includes('401') || e.message.includes('Unauthorized')) {
+          addLog("🔑 This looks like an authentication issue. Try refreshing your login.");
+        }
+        
+        // Check if it's a Gemini API issue
+        if (e.message.includes('Gemini') || e.message.includes('API key')) {
+          addLog("🤖 This looks like a Gemini API issue. Check your API key and quota.");
+        }
       }
     } finally {
       setLoading(false);
+      setAbortController(null); // Clear abort controller
     }
   }
 
@@ -929,6 +1098,10 @@ export default function App() {
       alert("Please enter your Google Gemini API key in Settings first.");
       return;
     }
+    
+    // Create abort controller for cancelling requests
+    const controller = new AbortController();
+    setAbortController(controller);
     
     // Create abort controller for cancelling requests when duration is reached
     const abortController = new AbortController();
@@ -959,155 +1132,184 @@ export default function App() {
       // Sort playlists by most recent (assuming newest first in API response)
       const sortedPlaylists = [...playlists].sort((a, b) => new Date(b.added_at || 0) - new Date(a.added_at || 0));
       
-      addLog(`📋 Will scan through ${sortedPlaylists.length} playlists in order of most recent...`);
+      addLog(`📋 Processing ${sortedPlaylists.length} playlists in batches of 30, starting BPM analysis immediately...`);
       
-      // 3. Progressive scan through playlists until duration is filled
-      const targetDurationMs = selectedDuration * 60 * 1000; // Convert to milliseconds
+      // Process playlists in batches of 30 and start BPM analysis immediately
+      const playlistBatchSize = 30;
+      const targetDurationMs = selectedDuration * 60 * 1000;
       let currentDurationMs = 0;
       let selectedTracks = [];
-      let scannedCount = 0;
-      let playlistIndex = 0;
+      let allTracks = [];
+      const seenTrackIds = new Set();
+      let processedPlaylistCount = 0;
       
-      for (const currentPlaylist of sortedPlaylists) {
-        playlistIndex++;
+      // Function to process a single track for BPM and add to selected tracks if it matches
+      const processTrackForSelection = async (track, bpm) => {
+        if (currentDurationMs >= targetDurationMs) return false; // Stop if target reached
         
+        if (bpm !== null && bpm !== undefined) {
+          // Check if BPM is in range (including half-time and double-time)
+          const originalInRange = bpm >= minTempo && bpm <= maxTempo;
+          const halfTimeInRange = (bpm / 2) >= minTempo && (bpm / 2) <= maxTempo;
+          const doubleTimeInRange = (bpm * 2) >= minTempo && (bpm * 2) <= maxTempo;
+          
+          if (originalInRange || halfTimeInRange || doubleTimeInRange) {
+            // Determine display tempo and type
+            let displayTempo = bpm;
+            let tempoType = "original";
+            
+            if (originalInRange) {
+              displayTempo = bpm;
+              tempoType = "original";
+            } else if (halfTimeInRange) {
+              displayTempo = bpm / 2;
+              tempoType = "half-time";
+            } else if (doubleTimeInRange) {
+              displayTempo = bpm * 2;
+              tempoType = "double-time";
+            }
+            
+            const trackWithTempo = {
+              ...track,
+              tempo: displayTempo,
+              originalTempo: bpm,
+              tempoType: tempoType
+            };
+            
+            selectedTracks.push(trackWithTempo);
+            currentDurationMs += track.duration_ms || 0;
+            
+            const currentMinutes = Math.round(currentDurationMs / 60000);
+            addLog(`✅ Added "${track.name}" from "${track.sourcePlaylist}" (${displayTempo.toFixed(1)} BPM ${tempoType}) - ${currentMinutes}/${selectedDuration} min`);
+            
+            // Update state for live progress display
+            setScannedTracks([...selectedTracks]);
+            setTotalScannedDuration(currentDurationMs / 60000);
+            
+            return currentDurationMs >= targetDurationMs; // Return true if target reached
+          }
+        }
+        return false;
+      };
+      
+      // Function to process individual tracks immediately as they're loaded
+      const processTrackImmediately = async (track) => {
+        if (currentDurationMs >= targetDurationMs) return;
+        
+        try {
+          // Process single track immediately
+          const bpm = await getTrackBPMWithGemini(
+            track.name, 
+            track.artists?.[0]?.name || 'Unknown Artist', 
+            geminiApiKey, 
+            addGeminiLog, 
+            controller.signal, 
+            updateGeminiLiveStatus
+          );
+          
+          // Add to selection immediately if it matches
+          await processTrackForSelection(track, bpm);
+        } catch (error) {
+          if (!error.message.includes('cancelled')) {
+            addLog(`❌ BPM analysis error for "${track.name}": ${error.message}`);
+          }
+        }
+      };
+      
+      // Process playlists in batches
+      for (let batchStart = 0; batchStart < sortedPlaylists.length; batchStart += playlistBatchSize) {
         if (currentDurationMs >= targetDurationMs) {
-          addLog(`🎯 Target duration reached! Stopping playlist scan.`);
+          addLog(`🎯 Target duration reached! Stopping playlist processing.`);
           break;
         }
         
-        setCurrentSourcePlaylist({
-          name: currentPlaylist.name,
-          id: currentPlaylist.id,
-          trackCount: currentPlaylist.tracks?.total || 0,
-          type: "primary"
+        const batchEnd = Math.min(batchStart + playlistBatchSize, sortedPlaylists.length);
+        const playlistBatch = sortedPlaylists.slice(batchStart, batchEnd);
+        
+        addLog(`📋 Processing playlist batch ${Math.floor(batchStart/playlistBatchSize) + 1}/${Math.ceil(sortedPlaylists.length/playlistBatchSize)} (${playlistBatch.length} playlists)...`);
+        
+        // Load tracks from current batch of playlists concurrently
+        const playlistPromises = playlistBatch.map(async (playlist, index) => {
+          try {
+            const globalIndex = batchStart + index + 1;
+            addLog(`📋 [${globalIndex}/${sortedPlaylists.length}] Loading tracks from "${playlist.name}"...`);
+            
+            let allPlaylistTracks = [];
+            let offset = 0;
+            let hasMore = true;
+            
+            while (hasMore) {
+              const playlistTracksResp = await spGet(`playlists/${playlist.id}/tracks`, { 
+                limit: 100, 
+                offset: offset 
+              });
+              
+              const tracks = (playlistTracksResp.items || [])
+                .filter(item => item && item.track && item.track.id && !item.is_local)
+                .map(item => ({
+                  ...item.track,
+                  added_at: item.added_at,
+                  duration_ms: item.track.duration_ms,
+                  sourcePlaylist: playlist.name
+                }));
+              
+              // Process each new track immediately (true streaming)
+              const newTracks = tracks.filter(track => !seenTrackIds.has(track.id));
+              
+              // Fire off ALL tracks concurrently - no sequential processing!
+              newTracks.forEach(track => {
+                seenTrackIds.add(track.id);
+                allTracks.push(track);
+                
+                // Start individual BPM analysis immediately (fire and forget - fully concurrent)
+                processTrackImmediately(track);
+              });
+              
+              allPlaylistTracks.push(...tracks);
+              hasMore = tracks.length === 100;
+              offset += 100;
+              
+              if (hasMore) {
+                await sleep(50);
+              }
+            }
+            
+            addLog(`✅ [${globalIndex}/${sortedPlaylists.length}] Loaded ${allPlaylistTracks.length} tracks from "${playlist.name}"`);
+            processedPlaylistCount++;
+            
+            return {
+              playlist,
+              tracks: allPlaylistTracks
+            };
+          } catch (error) {
+            addLog(`❌ Failed to load tracks from "${playlist.name}": ${error.message}`);
+            return {
+              playlist,
+              tracks: []
+            };
+          }
         });
         
-        addLog(`📋 Scanning playlist ${playlistIndex}/${sortedPlaylists.length}: "${currentPlaylist.name}"`);
+        // Wait for current batch to complete before moving to next batch
+        await Promise.all(playlistPromises);
         
-        // Get tracks from current playlist, with pagination to get all tracks
-        let allPlaylistTracks = [];
-        let offset = 0;
-        let hasMore = true;
+        addLog(`✅ Completed batch ${Math.floor(batchStart/playlistBatchSize) + 1}/${Math.ceil(sortedPlaylists.length/playlistBatchSize)} - ${processedPlaylistCount} playlists processed, ${selectedTracks.length} tracks selected`);
         
-        while (hasMore) {
-          const playlistTracksResp = await spGet(`playlists/${currentPlaylist.id}/tracks`, { 
-            limit: 100, 
-            offset: offset 
-          });
-          
-          const tracks = (playlistTracksResp.items || [])
-            .filter(item => item && item.track && item.track.id && !item.is_local)
-            .map(item => ({
-              ...item.track,
-              added_at: item.added_at,
-              duration_ms: item.track.duration_ms
-            }));
-          
-          allPlaylistTracks.push(...tracks);
-          hasMore = tracks.length === 100;
-          offset += 100;
-          
-          if (hasMore) {
-            await sleep(50); // Small delay for API rate limiting
-          }
+        // Check if we've reached target duration
+        if (currentDurationMs >= targetDurationMs) {
+          addLog(`🎯 Target duration of ${selectedDuration} minutes reached with ${selectedTracks.length} tracks!`);
+          break;
         }
-        
-        // Sort by most recent addition (newest first) within this playlist
-        allPlaylistTracks = allPlaylistTracks.sort((a, b) => new Date(b.added_at) - new Date(a.added_at));
-        
-        addLog(`🔍 Found ${allPlaylistTracks.length} tracks in "${currentPlaylist.name}", scanning from most recent...`);
-        
-        // Scan tracks from this playlist
-        for (const track of allPlaylistTracks) {
-          if (currentDurationMs >= targetDurationMs) {
-            addLog(`🎯 Target duration of ${selectedDuration} minutes reached! Cancelling all pending requests...`);
-            abortController.abort(); // Cancel all pending Gemini requests
-            break;
-          }
-
-          // Skip if we already have this track
-          if (selectedTracks.find(t => t.id === track.id)) {
-            addLog(`⏭️ Skipping "${track.name}" - already added from previous playlist`);
-            continue;
-          }
-
-          scannedCount++;
-          addLog(`🎶 [${playlistIndex}/${sortedPlaylists.length}] Scanning track ${scannedCount}: "${track.name}" by ${track.artists?.[0]?.name || 'Unknown'}`);
-
-          // Get BPM for this track using Gemini AI
-          const title = track.name;
-          const artist = track.artists?.[0]?.name || 'Unknown Artist';
-
-          try {
-            const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog, abortController.signal);            if (bpm !== null) {
-              // Check if BPM is in range (including half-time and double-time)
-              const originalInRange = bpm >= minTempo && bpm <= maxTempo;
-              const halfTimeInRange = (bpm / 2) >= minTempo && (bpm / 2) <= maxTempo;
-              const doubleTimeInRange = (bpm * 2) >= minTempo && (bpm * 2) <= maxTempo;
-              
-              if (originalInRange || halfTimeInRange || doubleTimeInRange) {
-                // Determine display tempo and type
-                let displayTempo = bpm;
-                let tempoType = "original";
-                
-                if (originalInRange) {
-                  displayTempo = bpm;
-                  tempoType = "original";
-                } else if (halfTimeInRange) {
-                  displayTempo = bpm / 2;
-                  tempoType = "half-time";
-                } else if (doubleTimeInRange) {
-                  displayTempo = bpm * 2;
-                  tempoType = "double-time";
-                }
-                
-                const trackWithTempo = {
-                  ...track,
-                  tempo: displayTempo,
-                  originalTempo: bpm,
-                  tempoType: tempoType,
-                  sourcePlaylist: currentPlaylist.name
-                };
-                
-                selectedTracks.push(trackWithTempo);
-                currentDurationMs += track.duration_ms || 0;
-                
-                const currentMinutes = Math.round(currentDurationMs / 60000);
-                addLog(`✅ Added "${track.name}" from "${currentPlaylist.name}" (${displayTempo.toFixed(1)} BPM ${tempoType}) - ${currentMinutes}/${selectedDuration} min`);
-                
-                // Update state for live progress display
-                setScannedTracks([...selectedTracks]);
-                setTotalScannedDuration(currentDurationMs / 60000);
-                
-                // Check if we've reached the target duration
-                if (currentDurationMs >= targetDurationMs) {
-                  addLog(`🎯 Target duration reached with ${selectedTracks.length} tracks from ${playlistIndex} playlists!`);
-                  abortController.abort(); // Cancel any remaining requests
-                  break;
-                }
-              } else {
-                addLog(`⏭️ Skipped "${track.name}" (${bpm.toFixed(1)} BPM - outside ${minTempo}-${maxTempo} range)`);
-              }
-            } else {
-              addLog(`❌ Could not determine BPM for "${track.name}" - skipping`);
-            }
-          } catch (error) {
-            if (error.message.includes("cancelled")) {
-              addLog(`🚫 BPM analysis cancelled for "${track.name}" - target duration reached`);
-              break; // Exit the track loop since we've reached target
-            } else {
-              addLog(`❌ Error analyzing "${track.name}": ${error.message}`);
-            }
-          }
-          
-          // Small delay to prevent rate limiting
-          await sleep(200);
-        }
-        
-        const currentMinutes = Math.round(currentDurationMs / 60000);
-        addLog(`📊 After playlist "${currentPlaylist.name}": ${selectedTracks.length} tracks, ${currentMinutes}/${selectedDuration} minutes`);
       }
+      
+      // Wait a bit for any remaining BPM analysis to complete
+      addLog(`⏳ Waiting for any remaining BPM analysis to complete...`);
+      await sleep(2000); // Give 2 seconds for final analyses to complete
+      
+      addLog(`🎵 Final result: ${selectedTracks.length} tracks selected from ${allTracks.length} total tracks across ${processedPlaylistCount} playlists`);
+      
+      // Sort selected tracks by most recent addition for final playlist
+      selectedTracks = selectedTracks.sort((a, b) => new Date(b.added_at) - new Date(a.added_at));
       
       // 4. Check if we have enough music from scanning playlists
       const achievedMinutes = Math.round(currentDurationMs / 60000);
@@ -1133,76 +1335,61 @@ export default function App() {
           
           addLog(`🔍 Scanning ${uniqueSavedTracks.length} saved tracks to fill remaining ${selectedDuration - achievedMinutes} minutes...`);
           
-          // Scan saved tracks
+          // Process saved tracks concurrently
+          addLog(`🚀 Processing ${uniqueSavedTracks.length} saved tracks concurrently...`);
+          const savedTempos = await fetchTemposForTracksWithGemini(uniqueSavedTracks, geminiApiKey, addGeminiLog, controller.signal, updateGeminiLiveStatus);
+          
+          // Process results and add matching tracks
           for (const track of uniqueSavedTracks) {
             if (currentDurationMs >= targetDurationMs) {
-              addLog(`🎯 Target duration reached! Cancelling remaining saved track analysis...`);
-              abortController.abort();
+              addLog(`🎯 Target duration reached!`);
               break;
             }
             
-            scannedCount++;
-            addLog(`🎶 Saved track scan: "${track.name}" by ${track.artists?.[0]?.name || 'Unknown'}`);
-            
-            const title = track.name;
-            const artist = track.artists?.[0]?.name || 'Unknown Artist';
-            
-            try {
-              const bpm = await getTrackBPMWithGemini(title, artist, geminiApiKey, addGeminiLog, abortController.signal);
+            const bpm = savedTempos[track.id];
+            if (bpm !== null && bpm !== undefined) {
+              const originalInRange = bpm >= minTempo && bpm <= maxTempo;
+              const halfTimeInRange = (bpm / 2) >= minTempo && (bpm / 2) <= maxTempo;
+              const doubleTimeInRange = (bpm * 2) >= minTempo && (bpm * 2) <= maxTempo;
               
-              if (bpm !== null) {
-                const originalInRange = bpm >= minTempo && bpm <= maxTempo;
-                const halfTimeInRange = (bpm / 2) >= minTempo && (bpm / 2) <= maxTempo;
-                const doubleTimeInRange = (bpm * 2) >= minTempo && (bpm * 2) <= maxTempo;
+              if (originalInRange || halfTimeInRange || doubleTimeInRange) {
+                let displayTempo = bpm;
+                let tempoType = "original";
                 
-                if (originalInRange || halfTimeInRange || doubleTimeInRange) {
-                  let displayTempo = bpm;
-                  let tempoType = "original";
-                  
-                  if (originalInRange) {
-                    displayTempo = bpm;
-                    tempoType = "original";
-                  } else if (halfTimeInRange) {
-                    displayTempo = bpm / 2;
-                    tempoType = "half-time";
-                  } else if (doubleTimeInRange) {
-                    displayTempo = bpm * 2;
-                    tempoType = "double-time";
-                  }
-                  
-                  const trackWithTempo = {
-                    ...track,
-                    tempo: displayTempo,
-                    originalTempo: bpm,
-                    tempoType: tempoType,
-                    sourcePlaylist: "Saved Tracks"
-                  };
-                  
-                  selectedTracks.push(trackWithTempo);
-                  currentDurationMs += track.duration_ms || 0;
-                  
-                  const currentMinutes = Math.round(currentDurationMs / 60000);
-                  addLog(`✅ Added from saved tracks: "${track.name}" (${displayTempo.toFixed(1)} BPM ${tempoType}) - ${currentMinutes}/${selectedDuration} min`);
-                  
-                  setScannedTracks([...selectedTracks]);
-                  setTotalScannedDuration(currentDurationMs / 60000);
-                  
-                  if (currentDurationMs >= targetDurationMs) {
-                    addLog(`🎯 Target duration reached with saved tracks! Cancelling remaining requests...`);
-                    abortController.abort();
-                    break;
-                  }
+                if (originalInRange) {
+                  displayTempo = bpm;
+                  tempoType = "original";
+                } else if (halfTimeInRange) {
+                  displayTempo = bpm / 2;
+                  tempoType = "half-time";
+                } else if (doubleTimeInRange) {
+                  displayTempo = bpm * 2;
+                  tempoType = "double-time";
+                }
+                
+                const trackWithTempo = {
+                  ...track,
+                  tempo: displayTempo,
+                  originalTempo: bpm,
+                  tempoType: tempoType,
+                  sourcePlaylist: "Saved Tracks"
+                };
+                
+                selectedTracks.push(trackWithTempo);
+                currentDurationMs += track.duration_ms || 0;
+                
+                const currentMinutes = Math.round(currentDurationMs / 60000);
+                addLog(`✅ Added from saved tracks: "${track.name}" (${displayTempo.toFixed(1)} BPM ${tempoType}) - ${currentMinutes}/${selectedDuration} min`);
+                
+                setScannedTracks([...selectedTracks]);
+                setTotalScannedDuration(currentDurationMs / 60000);
+                
+                if (currentDurationMs >= targetDurationMs) {
+                  addLog(`🎯 Target duration reached with saved tracks!`);
+                  break;
                 }
               }
-            } catch (error) {
-              if (error.message.includes("cancelled")) {
-                addLog(`🚫 Saved track analysis cancelled - target duration reached`);
-                break;
-              }
-              // Continue with next track on other errors
             }
-            
-            await sleep(200);
           }
         }
       } else if (selectedTracks.length === 0) {
@@ -1243,6 +1430,7 @@ export default function App() {
       setPlaylistCreationStep("select");
     } finally {
       setLoading(false);
+      setAbortController(null); // Clear abort controller
     }
   }
 
@@ -1410,37 +1598,41 @@ export default function App() {
             {isAuthed ? (
               <div className="flex items-center gap-2">
                 <span className="text-sm opacity-80">{me ? `Logged in as ${me.display_name || me.id}` : "Authenticated"}</span>
-                <Button 
-                  size="sm"
-                  radius="sm"
-                  variant="filled"
-                  style={{
-                    backgroundColor: 'white',
-                    color: 'black',
-                    border: '1px solid black',
-                    transition: 'all 0.2s ease',
-                    transform: 'scale(1)'
-                  }}
-                  styles={{
-                    root: {
-                      transition: 'all 0.2s ease',
-                      '&:hover': {
-                        opacity: 0.7,
-                      }
-                    }
-                  }}
-                  onClick={() => {
-                    localStorage.removeItem("spotify_access_token");
-                    localStorage.removeItem("spotify_refresh_token");
-                    localStorage.removeItem("spotify_token_expiry");
-                    setAccessToken("");
-                    setRefreshToken("");
-                    setTokenExpiry(0);
-                    setMe(null);
-                  }}
-                >
-                  Logout
-                </Button>
+                <Button
+  size="sm"
+  radius="sm"
+  variant="unstyled" // ensures Mantine doesn't override
+  styles={{
+    root: {
+      backgroundColor: 'transparent !important',
+      backgroundImage: 'none !important',
+      color: 'black !important',
+      border: '1px solid black !important',
+      transition: 'all 0.2s ease',
+
+      '&:hover': {
+        backgroundColor: 'black !important',
+        backgroundImage: 'none !important',
+        color: 'white !important',
+        border: '1px solid black !important',
+      },
+    },
+  }}
+  onClick={() => {
+    localStorage.removeItem("spotify_access_token");
+    localStorage.removeItem("spotify_refresh_token");
+    localStorage.removeItem("spotify_token_expiry");
+    setAccessToken("");
+    setRefreshToken("");
+    setTokenExpiry(0);
+    setMe(null);
+  }}
+>
+  Logout
+</Button>
+
+
+
               </div>
             ) : (
               <Card
@@ -1482,17 +1674,26 @@ export default function App() {
           </div>
         </header>
 
+        {/* App Description */}
+        <div className="mb-6">
+          <Text size="md" className="mx-auto">
+            <strong>Sporkify</strong> is an AI playlist generator for athletes who want music that matches their running cadence (strides per minute).
+          </Text>
+        </div>
+
        
 
         {/* Tempo Controls */}
         <div className="mb-6" p="lg" withBorder={false} shadow="none">
-          <Title order={3} mb="md">Strides per Minute (SPM/BPM)</Title>
+          <Title order={3} mb="xs">Strides per Minute (SPM/BPM)</Title>
+
+          <Text size="sm" c="dimmed" fs="italic" mb="md">
+              The animations display the approximate stride per tempo or ‘cadence’ of your run.
+          </Text>
           
           <Stack gap="md">
 
-            <Text size="sm" c="dimmed" fs="italic" mb="md">
-              The animations display the approximate stride per tempo or ‘cadence’ of your run.
-            </Text>
+            
             
             {/* Preset BPM Ranges */}
             <Group gap="sm" grow>
@@ -1555,7 +1756,7 @@ export default function App() {
                       c={isSelected ? 'brand.7' : undefined}
                       ta="center"
                     >
-                      {range.label} BPM
+                      {range.label} SPM
                     </Text>
                   </Card>
                 );
@@ -1567,8 +1768,8 @@ export default function App() {
               className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
               style={{
                 cursor: 'pointer',
-                backgroundColor: isCustomRangeSelected ? 'var(--mantine-color-blue-0)' : undefined,
-                borderColor: isCustomRangeSelected ? 'var(--mantine-color-blue-3)' : undefined,
+                backgroundColor: isCustomRangeSelected ? 'var(--mantine-color-brand-0)' : undefined,
+                borderColor: isCustomRangeSelected ? 'var(--mantine-color-brand-3)' : undefined,
                 borderWidth: isCustomRangeSelected ? 2 : 1
               }}
               onClick={() => {
@@ -1644,15 +1845,30 @@ export default function App() {
                   </Group>
                 </div>
                 
-                <Button 
-                  size="lg"
-                  color="brand"
-                  disabled={!isAuthed || !geminiApiKey || playlists.length === 0}
-                  onClick={findMatchingSongs}
-                  fullWidth
-                >
-                  {`Find Songs`}
-                </Button>
+                <div className="flex gap-3">
+                  <Button 
+                    size="lg"
+                    color="brand"
+                    disabled={!isAuthed || !geminiApiKey || playlists.length === 0}
+                    onClick={findMatchingSongs}
+                    loading={loading}
+                    style={{ flex: 1 }}
+                  >
+                    {loading ? "Finding Songs..." : "Find Songs"}
+                  </Button>
+                  
+                  {loading && abortController && (
+                    <Button 
+                      size="lg"
+                      variant="outline"
+                      color="red"
+                      onClick={cancelSearch}
+                      style={{ minWidth: '120px' }}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </div>
                 
                 
               </div>
@@ -1666,7 +1882,7 @@ export default function App() {
                     🔍 Scanning your music...
                   </div>
                   <div className="text-sm text-default-500 mt-1">
-                    Finding {selectedDuration}-minute playlist from your most recent additions
+                    Making a {selectedDuration}-minute playlist from your most recent additions
                   </div>
                 </div>
                 
@@ -1709,16 +1925,33 @@ export default function App() {
                     <Text size="sm" fw={500} mb="sm">
                       Found tracks ({scannedTracks.length}):
                     </Text>
-                    <ScrollArea style={{ maxHeight: '160px' }}>
+                    <ScrollArea style={{ maxHeight: '240px' }} scrollbarSize={8} offsetScrollbars>
                       <Stack gap="xs">
                         {scannedTracks.map((track, i) => (
                           <Paper key={track.id} p="sm" style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
                             <Group justify="space-between" gap="sm">
-                              <Box style={{ minWidth: 0, flex: 1 }}>
-                                <Text size="sm" fw={500} truncate>{track.name}</Text>
-                                <Text size="xs" c="dimmed" truncate>{track.artists?.map(a => a.name || a).join(", ")}</Text>
-                              </Box>
-                              <Group gap="xs">
+                              <Group gap="sm" style={{ flex: 1, minWidth: 0 }}>
+                                <img 
+                                  src={track.album?.images?.[2]?.url || track.album?.images?.[1]?.url || track.album?.images?.[0]?.url || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjRTlFQ0VGIi8+CjxwYXRoIGQ9Ik0xNSAxMEgxNUMxMi45MTA5IDEwIDExIDExLjkxMDkgMTEgMTRWMjZDMTEgMjguMDg5MSAxMi45MTA5IDMwIDE1IDMwSDI1QzI3LjA4OTEgMzAgMjkgMjguMDg5MSAyOSAyNlYxNEMyOSAxMS45MTA5IDI3LjA4OTEgMTAgMjUgMTBIMTVaIiBmaWxsPSIjOUNBM0FGIi8+CjxwYXRoIGQ9Ik0yMCAxN0MyMSAxNyAyMiAxNy44MzkxIDIyIDE5VjIxQzIyIDIyLjE2MDkgMjEgMjMgMjAgMjNDMTkgMjMgMTggMjIuMTYwOSAxOCAyMVYxOUMxOCAxNy44MzkxIDE5IDE3IDIwIDE3WiIgZmlsbD0iIzZCNzI4MCIvPgo8L3N2Zz4K'} 
+                                  alt={`${track.album?.name || 'Unknown Album'} cover`}
+                                  style={{ 
+                                    width: '40px', 
+                                    height: '40px', 
+                                    borderRadius: '4px',
+                                    objectFit: 'cover',
+                                    border: '1px solid var(--mantine-color-gray-3)'
+                                  }}
+                                  onError={(e) => {
+                                    e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjRTlFQ0VGIi8+CjxwYXRoIGQ9Ik0xNSAxMEgxNUMxMi45MTA5IDEwIDExIDExLjkxMDkgMTEgMTRWMjZDMTEgMjguMDg5MSAxMi45MTA5IDMwIDE1IDMwSDI1QzI3LjA4OTEgMzAgMjkgMjguMDg5MSAyOSAyNlYxNEMyOSAxMS45MTA5IDI3LjA4OTEgMTAgMjUgMTBIMTVaIiBmaWxsPSIjOUNBM0FGIi8+CjxwYXRoIGQ9Ik0yMCAxN0MyMSAxNyAyMiAxNy44MzkxIDIyIDE5VjIxQzIyIDIyLjE2MDkgMjEgMjMgMjAgMjNDMTkgMjMgMTggMjIuMTYwOSAxOCAyMVYxOUMxOCAxNy44MzkxIDE5IDE3IDIwIDE3WiIgZmlsbD0iIzZCNzI4MCIvPgo8L3N2Zz4K';
+                                  }}
+                                />
+                                <Box style={{ minWidth: 0, flex: 1 }}>
+                                  <Text size="sm" fw={500} truncate>{track.name}</Text>
+                                  <Text size="xs" c="dimmed" truncate>{track.artists?.map(a => a.name || a).join(", ")}</Text>
+                                  <Text size="xs" c="dimmed" truncate>{track.album?.name || 'Unknown Album'}</Text>
+                                </Box>
+                              </Group>
+                              <Group gap="xs" style={{ flexShrink: 0 }}>
                                 <Chip size="sm" variant="light" color="spotify">
                                   {track.tempo?.toFixed(1)} BPM
                                 </Chip>
@@ -1747,45 +1980,85 @@ export default function App() {
                 
                 <Card p="md">
                   <Text size="sm" fw={500} mb="md">Selected Songs:</Text>
-                  <ScrollArea style={{ maxHeight: '256px' }}>
-                    <Stack gap="sm">
-                      {finalTrackSelection.map((track, i) => (
-                        <Paper key={track.id} p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
-                          <Group justify="space-between" gap="md">
-                            <Group gap="sm" style={{ flex: 1, minWidth: 0 }}>
-                              <Chip size="sm" variant="light">{i + 1}</Chip>
-                              <Box style={{ flex: 1, minWidth: 0 }}>
-                                <Text size="sm" fw={500} truncate>{track.name}</Text>
-                                <Text size="xs" c="dimmed" truncate>
-                                  {track.artists?.map(a => a.name || a).join(", ")} • {track.album?.name || 'Unknown Album'}
+                  <div style={{ height: '400px', overflow: 'hidden' }}>
+                    <ScrollArea 
+                      h="100%" 
+                      scrollbarSize={8} 
+                      offsetScrollbars 
+                      scrollHideDelay={500}
+                      type="always"
+                    >
+                      <Stack gap="sm" pb="md">
+                        {finalTrackSelection.map((track, i) => (
+                          <Paper key={track.id} p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
+                            <Group justify="space-between" gap="md">
+                              <Group gap="md" style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ position: 'relative' }}>
+                                  <img 
+                                    src={track.album?.images?.[2]?.url || track.album?.images?.[1]?.url || track.album?.images?.[0]?.url || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjRTlFQ0VGIi8+CjxwYXRoIGQ9Ik0yNCAxNkgyNEMyMC42ODYzIDE2IDE4IDE4LjY4NjMgMTggMjJWNDJDMTggNDUuMzEzNyAyMC42ODYzIDQ4IDI0IDQ4SDQwQzQzLjMxMzcgNDggNDYgNDUuMzEzNyA0NiA0MlYyMkM0NiAxOC42ODYzIDQzLjMxMzcgMTYgNDAgMTZIMjRaIiBmaWxsPSIjOUNBM0FGIi8+CjxwYXRoIGQ9Ik0zMiAyOEMzNCAyOCAzNiAyOS4zNDMxIDM2IDMxVjMzQzM2IDM0LjY1NjkgMzQgMzYgMzIgMzZDMzAgMzYgMjggMzQuNjU2OSAyOCAzM1YzMUMyOCAyOS4zNDMxIDMwIDI4IDMyIDI4WiIgZmlsbD0iIzZCNzI4MCIvPgo8L3N2Zz4K'} 
+                                    alt={`${track.album?.name || 'Unknown Album'} cover`}
+                                    style={{ 
+                                      width: '56px', 
+                                      height: '56px', 
+                                      borderRadius: '6px',
+                                      objectFit: 'cover',
+                                      border: '1px solid var(--mantine-color-gray-3)'
+                                    }}
+                                    onError={(e) => {
+                                      e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSIjRTlFQ0VGIi8+CjxwYXRoIGQ9Ik0yNCAxNkgyNEMyMC42ODYzIDE2IDE4IDE4LjY4NjMgMTggMjJWNDJDMTggNDUuMzEzNyAyMC42ODYzIDQ4IDI0IDQ4SDQwQzQzLjMxMzcgNDggNDYgNDUuMzEzNyA0NiA0MlYyMkM0NiAxOC42ODYzIDQzLjMxMzcgMTYgNDAgMTZIMjRaIiBmaWxsPSIjOUNBM0FGIi8+CjxwYXRoIGQ9Ik0zMiAyOEMzNCAyOCAzNiAyOS4zNDMxIDM2IDMxVjMzQzM2IDM0LjY1NjkgMzQgMzYgMzIgMzZDMzAgMzYgMjggMzQuNjU2OSAyOCAzM1YzMUMyOCAyOS4zNDMxIDMwIDI4IDMyIDI4WiIgZmlsbD0iIzZCNzI4MCIvPgo8L3N2Zz4K';
+                                    }}
+                                  />
+                                  <Chip 
+                                    size="xs" 
+                                    variant="light"
+                                    style={{ 
+                                      position: 'absolute', 
+                                      top: '-8px', 
+                                      left: '-8px',
+                                      fontSize: '10px',
+                                      height: '20px',
+                                      minHeight: '20px'
+                                    }}
+                                  >
+                                    {i + 1}
+                                  </Chip>
+                                </div>
+                                <Box style={{ flex: 1, minWidth: 0 }}>
+                                  <Text size="sm" fw={500} truncate>{track.name}</Text>
+                                  <Text size="xs" c="dimmed" truncate>
+                                    {track.artists?.map(a => a.name || a).join(", ")}
+                                  </Text>
+                                  <Text size="xs" c="dimmed" truncate>
+                                    {track.album?.name || 'Unknown Album'}
+                                  </Text>
+                                </Box>
+                              </Group>
+                              <Box style={{ textAlign: 'right', flexShrink: 0 }}>
+                                <Group gap="xs" justify="flex-end">
+                                  <Chip size="sm" color="spotify" variant="light">
+                                    {track.tempo?.toFixed(1)} BPM
+                                  </Chip>
+                                </Group>
+                                {track.tempoType !== "original" && (
+                                  <Text size="xs" c="dimmed" mt="xs">
+                                    {track.tempoType === "half-time" && (
+                                      <span style={{ color: 'var(--mantine-color-brand-6)' }}>½× ({track.originalTempo?.toFixed(1)})</span>
+                                    )}
+                                    {track.tempoType === "double-time" && (
+                                      <span style={{ color: 'var(--mantine-color-orange-6)' }}>2× ({track.originalTempo?.toFixed(1)})</span>
+                                    )}
+                                  </Text>
+                                )}
+                                <Text size="xs" c="dimmed" mt="xs">
+                                  {Math.round((track.duration_ms || 0) / 1000 / 60)}:{String(Math.round(((track.duration_ms || 0) / 1000) % 60)).padStart(2, '0')}
                                 </Text>
                               </Box>
                             </Group>
-                            <Box style={{ textAlign: 'right' }}>
-                              <Group gap="xs" justify="flex-end">
-                                <Chip size="sm" color="spotify" variant="light">
-                                  {track.tempo?.toFixed(1)} BPM
-                                </Chip>
-                              </Group>
-                              {track.tempoType !== "original" && (
-                                <Text size="xs" c="dimmed" mt="xs">
-                                  {track.tempoType === "half-time" && (
-                                    <span style={{ color: 'var(--mantine-color-brand-6)' }}>½× ({track.originalTempo?.toFixed(1)})</span>
-                                  )}
-                                  {track.tempoType === "double-time" && (
-                                    <span style={{ color: 'var(--mantine-color-orange-6)' }}>2× ({track.originalTempo?.toFixed(1)})</span>
-                                  )}
-                                </Text>
-                              )}
-                              <Text size="xs" c="dimmed" mt="xs">
-                                {Math.round((track.duration_ms || 0) / 1000 / 60)}:{String(Math.round(((track.duration_ms || 0) / 1000) % 60)).padStart(2, '0')}
-                              </Text>
-                            </Box>
-                          </Group>
-                        </Paper>
-                      ))}
-                    </Stack>
-                  </ScrollArea>
+                          </Paper>
+                        ))}
+                      </Stack>
+                    </ScrollArea>
+                  </div>
                 </Card>
                 
                 <TextInput
@@ -1843,7 +2116,7 @@ export default function App() {
                     isExternal
                     showAnchorIcon
                   >
-                    <Button color="brand" size="lg">
+                    <Button color="brand">
                       🎵 Open in Spotify
                     </Button>
                   </Link>
@@ -1879,13 +2152,13 @@ export default function App() {
             <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
               <span className="text-slate-300 font-medium">Access Token:</span><br/>
               <span className={accessToken ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
-                {accessToken ? `${accessToken.substring(0, 20)}...` : "None"}
+                {accessToken ? "✓ Active" : "None"}
               </span>
             </div>
             <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
               <span className="text-slate-300 font-medium">Refresh Token:</span><br/>
               <span className={refreshToken ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
-                {refreshToken ? `${refreshToken.substring(0, 20)}...` : "None"}
+                {refreshToken ? "✓ Available" : "None"}
               </span>
             </div>
             <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
@@ -1923,22 +2196,118 @@ export default function App() {
           )}
         </section>
 
-        {/* Gemini Live Log with Grounding */}
-        {geminiLogs.length > 0 && (
+        
           <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-bold text-slate-100">🔍 Gemini AI Live Responses with Search Grounding ({geminiLogs.length})</h2>
               <div className="flex items-center gap-3">
                 <span className="text-xs text-slate-300 bg-slate-900/40 border border-slate-600/50 rounded-lg px-3 py-1">Real-time BPM analysis with sources</span>
                 <button 
-                  onClick={() => setGeminiLogs([])} 
+                  onClick={() => {
+                    // Add test data to see the table
+                    console.log('🧪 Test Table button clicked');
+                    console.log('🧪 Current geminiLiveStatus before update:', geminiLiveStatus);
+                    const testData = {
+                      'Test Song 1': {
+                        songName: 'Test Song 1',
+                        artist: 'Test Artist 1',
+                        primary: 'running',
+                        secondary: 'pending',
+                        tertiary: 'pending',
+                        finalBPM: null,
+                        updatedAt: new Date().toLocaleTimeString()
+                      },
+                      'Test Song 2': {
+                        songName: 'Test Song 2', 
+                        artist: 'Test Artist 2',
+                        primary: 'success',
+                        secondary: 'running',
+                        tertiary: 'pending',
+                        finalBPM: 120,
+                        updatedAt: new Date().toLocaleTimeString()
+                      }
+                    };
+                    console.log('🧪 Setting test data:', testData);
+                    setGeminiLiveStatus(testData);
+                    
+                    // Check state after a brief delay to see if it updated
+                    setTimeout(() => {
+                      console.log('🧪 geminiLiveStatus after setState (delayed check):', geminiLiveStatus);
+                    }, 100);
+                  }} 
+                  className="text-xs px-3 py-1 bg-blue-600 border border-blue-500 rounded-lg text-white hover:bg-blue-700 transition-colors"
+                >
+                  Test Table
+                </button>
+                <button 
+                  onClick={() => {
+                    setGeminiLogs([]);
+                    setGeminiLiveStatus({});
+                  }} 
                   className="text-xs px-3 py-1 bg-slate-900/40 border border-slate-600/50 rounded-lg text-slate-200 hover:bg-slate-800/60 transition-colors"
                 >
-                  Clear
+                  Clear All
                 </button>
               </div>
             </div>
-            <div className="space-y-2 max-h-96 overflow-auto text-sm font-mono">
+
+            {/* Live Status Table */}
+            <div className="mb-6">
+              <h3 className="text-md font-bold text-slate-200 mb-3">⚡ Live Processing Status ({Object.keys(geminiLiveStatus).length} songs)</h3>
+              {console.log('🔍 Table render - geminiLiveStatus:', geminiLiveStatus)}
+              <div className="overflow-x-auto max-h-64 overflow-y-auto bg-slate-900/40 rounded-lg border border-slate-600/50">
+                <table className="w-full text-xs border-collapse">
+                  <thead className="sticky top-0 bg-slate-800">
+                    <tr className="border-b border-slate-600/50">
+                      <th className="text-left py-2 px-3 text-slate-300 font-medium">Song</th>
+                      <th className="text-center py-2 px-3 text-slate-300 font-medium">Primary</th>
+                      <th className="text-center py-2 px-3 text-slate-300 font-medium">Secondary</th>
+                      <th className="text-center py-2 px-3 text-slate-300 font-medium">Tertiary</th>
+                      <th className="text-center py-2 px-3 text-slate-300 font-medium">Final BPM</th>
+                      <th className="text-center py-2 px-3 text-slate-300 font-medium">Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.keys(geminiLiveStatus).length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="py-4 px-3 text-center text-slate-400 italic">
+                          No songs being processed. Click "Test Table" to see sample data.
+                        </td>
+                      </tr>
+                    ) : (
+                      Object.entries(geminiLiveStatus).map(([songKey, status]) => {
+                        console.log('🔍 Rendering row for:', songKey, status);
+                        return (
+                          <tr key={songKey} className="border-b border-slate-600/30 hover:bg-slate-800/30">
+                            <td className="py-2 px-3 text-slate-200 truncate max-w-xs">
+                              {status.songName ? `${status.songName} - ${status.artist}` : songKey}
+                            </td>
+                            <td className="py-2 px-3 text-center text-slate-200">{status.primary || '-'}</td>
+                            <td className="py-2 px-3 text-center text-slate-200">{status.secondary || '-'}</td>
+                            <td className="py-2 px-3 text-center text-slate-200">{status.tertiary || '-'}</td>
+                            <td className="py-2 px-3 text-center text-slate-200">{status.finalBPM || '-'}</td>
+                            <td className="py-2 px-3 text-center text-slate-200">{status.updatedAt || '-'}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-2 text-xs text-slate-400 space-x-4">
+                <span>🔄 <span className="text-yellow-400">Running</span></span>
+                <span>✅ <span className="text-emerald-400">Success</span></span>
+                <span>❌ <span className="text-orange-400">Failed</span></span>
+                <span>🚨 <span className="text-red-400">Error</span></span>
+                <span>⏭️ <span className="text-slate-500">Skipped</span></span>
+              </div>
+            </div>
+
+            {/* Gemini Log Responses */}
+            {geminiLogs.length > 0 && (
+              <div>
+                <h3 className="text-md font-bold text-slate-200 mb-3">📋 Detailed API Responses</h3>
+                <div className="space-y-2 max-h-96 overflow-auto text-sm font-mono">
               {geminiLogs.map((log, i) => (
                 <div key={i} className={`bg-slate-900/40 rounded-lg px-3 py-2 border border-slate-600/50 ${
                   log.error 
@@ -2013,8 +2382,10 @@ export default function App() {
               <span className="text-yellow-400 ml-2">Yellow = Invalid</span> • 
               <span className="text-red-400 ml-2">Red = Error</span>
             </div>
+              </div>
+            )}
           </section>
-        )}
+
 
         {/* Settings */}
         <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
@@ -2044,12 +2415,9 @@ export default function App() {
               <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
                 <span className="text-slate-300 font-medium">Spotify Client ID</span>
                 {import.meta.env.VITE_SPOTIFY_CLIENT_ID && <span className="text-emerald-400 ml-1">(.env)</span>}<br/>
-                <input 
-                  value={clientId} 
-                  onChange={(e) => setClientId(e.target.value)} 
-                  className="w-full mt-1 px-2 py-1 rounded bg-slate-800 border border-slate-600 outline-none focus:border-slate-400 text-slate-200 text-xs" 
-                  placeholder={import.meta.env.VITE_SPOTIFY_CLIENT_ID ? "Loaded from .env" : "Your Spotify Client ID"} 
-                />
+                <div className="w-full mt-1 px-2 py-1 rounded bg-slate-800 border border-slate-600 text-slate-200 text-xs">
+                  {clientId ? "✓ Configured" : "Not set"}
+                </div>
               </div>
             </div>
             <div className="col-span-1 md:col-span-2">
@@ -2068,124 +2436,14 @@ export default function App() {
               <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
                 <span className="text-slate-300 font-medium">Google Gemini API Key (required for BPM analysis)</span>
                 {import.meta.env.VITE_GEMINI_API_KEY && <span className="text-emerald-400 ml-1">(.env)</span>}<br/>
-                <input 
-                  value={geminiApiKey} 
-                  onChange={(e) => setGeminiApiKey(e.target.value)} 
-                  className="w-full mt-1 px-2 py-1 rounded bg-slate-800 border border-slate-600 outline-none focus:border-slate-400 text-slate-200 text-xs" 
-                  placeholder={import.meta.env.VITE_GEMINI_API_KEY ? "Loaded from .env" : "AIza..."} 
-                />
+                <div className="w-full mt-1 px-2 py-1 rounded bg-slate-800 border border-slate-600 text-slate-200 text-xs">
+                  {geminiApiKey ? "✓ Configured" : "Not set"}
+                </div>
               </div>
             </div>
           </div>
         </section>
-
-        {/* Source Selection */}
-        <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
-            <h2 className="text-lg font-bold text-slate-100">Sources</h2>
-            <div className="flex items-center gap-3">
-              <div className="bg-slate-900/40 rounded-lg p-2 border border-slate-600/50">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={includeSaved} onChange={(e) => setIncludeSaved(e.target.checked)} className="accent-emerald-400" /> 
-                  <span className="text-slate-300 font-medium">Include Saved Tracks</span>
-                </label>
-              </div>
-              {loading && playlists.length === 0 && (
-                <div className="bg-slate-900/40 rounded-lg p-2 border border-slate-600/50">
-                  <span className="text-sm text-slate-300">Loading playlists...</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {playlists.length > 0 ? (
-            <div className="max-h-64 overflow-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {playlists.map((p) => (
-                <div key={p.id} className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedPlaylistIds.includes(p.id)}
-                      onChange={(e) => {
-                        setSelectedPlaylistIds((cur) =>
-                          e.target.checked ? [...cur, p.id] : cur.filter((id) => id !== p.id)
-                        );
-                      }}
-                      className="accent-emerald-400"
-                    />
-                    <span className="truncate text-slate-300 font-medium">{p.name}</span>
-                  </label>
-                </div>
-              ))}
-            </div>
-          ) : loading ? (
-            <div className="text-center py-4">
-              <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50 inline-flex items-center gap-2">
-                <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-slate-300">Loading your playlists...</span>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-4">
-              <span className="text-slate-400">(No playlists available)</span>
-            </div>
-          )}
-        </section>
-
-        {/* Legacy Results (Batch Analysis Method) */}
-        <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-slate-100">Legacy: Batch Tempo Analysis Results</h2>
-            <div className="bg-slate-900/40 rounded-lg p-2 border border-slate-600/50">
-              <span className="text-slate-300 font-medium">{totalFound} tracks</span>
-            </div>
-          </div>
-          <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50 mb-3">
-            <span className="text-slate-300">
-              This is the old method that analyzes all tracks first. Use the Smart Playlist Creator above for the new progressive scanning method.
-            </span>
-          </div>
-          {candidates.length === 0 ? (
-            <div className="text-center py-4">
-              <span className="text-slate-400">(No results yet)</span>
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-72 overflow-auto">
-              {candidates.map((t) => (
-                <div key={t.id} className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="truncate">
-                      <div className="truncate font-medium text-slate-300">{t.name}</div>
-                      <div className="truncate text-slate-400">{t.artists.join(", ")}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-bold text-emerald-400">{t.tempo.toFixed(1)} BPM</div>
-                      {t.tempoType !== "original" && (
-                        <div className="text-slate-400 mt-1">
-                          {t.tempoType === "half-time" && (
-                            <span className="text-blue-400">½× ({t.originalTempo.toFixed(1)})</span>
-                          )}
-                          {t.tempoType === "double-time" && (
-                            <span className="text-orange-400">2× ({t.originalTempo.toFixed(1)})</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="mt-3 flex flex-col sm:flex-row gap-3">
-            <input value={newPlaylistName} onChange={(e) => setNewPlaylistName(e.target.value)} className="flex-1 px-2 py-1 rounded bg-slate-800 border border-slate-600 outline-none focus:border-slate-400 text-slate-200" placeholder={`Legacy playlist name (default: Tempo ${minTempo}-${maxTempo} BPM)`} />
-            <button onClick={createPlaylist} disabled={loading || (!isAuthed)} className="px-3 py-1 rounded bg-slate-600 text-slate-100 font-medium disabled:opacity-50 hover:bg-slate-500 transition-colors">Create Legacy Playlist</button>
-          </div>
-          {createdPlaylistUrl ? (
-            <div className="mt-3 bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
-              <span className="text-slate-300">Done! </span><a href={createdPlaylistUrl} target="_blank" rel="noreferrer" className="underline text-emerald-400 hover:text-emerald-300">Open your new playlist</a>
-            </div>
-          ) : null}
-        </section>
+        
 
         {/* Debug: All Pulled Tracks */}
         {allPulledTracks.length > 0 && (
