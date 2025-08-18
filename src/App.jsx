@@ -577,9 +577,12 @@ const SCOPE = [
   "user-library-read",
 ].join(" ");
 
-// Spotify requires 127.0.0.1 instead of localhost
+// Spotify requires 127.0.0.1 instead of localhost for local development
+// For production, use the actual domain
 const DEFAULT_REDIRECT = typeof window !== "undefined" ? 
-  window.location.origin.replace('localhost', '127.0.0.1') : "";
+  (window.location.hostname === 'localhost' ? 
+    window.location.origin.replace('localhost', '127.0.0.1') : 
+    window.location.origin + window.location.pathname) : "";
 
 // -------------------- PKCE helpers --------------------
 async function sha256(plain) {
