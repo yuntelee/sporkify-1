@@ -652,6 +652,7 @@ export default function App() {
   // Duration-based playlist creation
   const [selectedDuration, setSelectedDuration] = useState(30); // 15, 30, or 60 minutes
   const [playlistOrder, setPlaylistOrder] = useState("recent"); // "recent" or "random"
+  const [currentPage, setCurrentPage] = useState(0); // 0: Tempo, 1: Playlist Order, 2: Duration/Create
   const [playlistCreationStep, setPlaylistCreationStep] = useState("select"); // "select", "scanning", "review", "creating", "complete"
   const [scannedTracks, setScannedTracks] = useState([]); // Tracks found during progressive scan
   const [totalScannedDuration, setTotalScannedDuration] = useState(0); // Total minutes scanned so far
@@ -1820,7 +1821,7 @@ export default function App() {
                             aspectRatio: '4 / 3',
                             margin: '0 auto',
                             filter: isSelected ? 'none' : 'grayscale(100%)',
-                            transform: isSelected ? 'scale(1)' : 'scale(0.8)',
+                            transform: isSelected ? 'scale(1)' : 'scale(0.7)',
                             transition: 'filter 0.3s ease, transform 0.3s ease'
                           }}
                       />
@@ -1885,7 +1886,7 @@ export default function App() {
 
         {/* Playlist Processing Order */}
         <div className="mb-6" p="lg">
-          <Title order={3} mb="md">Playlist Order</Title>
+          <Title order={3} mb="md">Song Source</Title>
           <Group gap="sm" grow>
             <Card
               className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
@@ -1895,16 +1896,16 @@ export default function App() {
                 borderColor: playlistOrder === "recent" ? 'var(--mantine-color-brand-3)' : undefined,
                 borderWidth: playlistOrder === "recent" ? 2 : 1,
                 flex: 1,
-                minHeight: '200px',
+                minHeight: '120px',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between'
               }}
               onClick={() => setPlaylistOrder("recent")}
-              p="md"
+              p="sm"
             >
               {/* Recent Image */}
-              <Center mb="sm">
+              <Center mb="xs">
                 <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100px', height: '100px' }}>
                   <img 
                     src={import.meta.env.BASE_URL + "Adobe Express - file.png"}
@@ -1914,12 +1915,21 @@ export default function App() {
                       height: '60px',
                       objectFit: 'contain',
                       filter: playlistOrder === "recent" ? 'none' : 'grayscale(100%)',
-                      transform: playlistOrder === "recent" ? 'scale(1)' : 'scale(0.8)',
                       transition: 'filter 0.3s ease, transform 0.3s ease'
                     }}
                   />
                 </div>
               </Center>
+              <div>
+                <Text 
+                  size="md" 
+                  fw={500}
+                  c={playlistOrder === "recent" ? 'brand.7' : undefined}
+                  ta="center"
+                >
+                  Most Recently Added
+                </Text>
+              </div>
             </Card>
             <Card
               className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
@@ -1929,25 +1939,24 @@ export default function App() {
                 borderColor: playlistOrder === "random" ? 'var(--mantine-color-brand-3)' : undefined,
                 borderWidth: playlistOrder === "random" ? 2 : 1,
                 flex: 1,
-                minHeight: '200px',
+                minHeight: '120px',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between'
               }}
               onClick={() => setPlaylistOrder("random")}
-              p="md"
+              p="sm"
             >
               {/* Lottie Animation */}
-              <Center mb="sm">
+              <Center mb="xs">
                 <DotLottieReact
                   src="https://lottie.host/5917647c-35af-4a54-9444-c3992b645ea3/WrdSEbt9KY.lottie"
                   loop
                   autoplay
                   style={{ 
-                    width: '80px',
-                    height: '80px',
+                    width: '100px',
+                    height: '100px',
                     filter: playlistOrder === "random" ? 'none' : 'grayscale(100%)',
-                    transform: playlistOrder === "random" ? 'scale(1)' : 'scale(0.8)',
                     transition: 'filter 0.3s ease, transform 0.3s ease'
                   }}
                 />
@@ -1961,6 +1970,7 @@ export default function App() {
                 >
                   Randomize
                 </Text>
+
               </div>
             </Card>
           </Group>
