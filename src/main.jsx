@@ -16,7 +16,7 @@ const CONTAINER_SIZES = {
 };
 
 // Function to determine if it's day or night
-const mantineTheme = createTheme({x
+const mantineTheme = createTheme({
   /** Put your mantine theme override here */
   fontSizes: {
     xs: rem("12px"),

@@ -1591,7 +1591,7 @@ export default function App() {
         <header className="flex items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-3">
             <img 
-              src="/image.png" 
+              src="./image.png"
               alt="Sporkify" 
               className="w-8 h-8 sm:w-10 sm:h-10"
             />
@@ -1797,10 +1797,10 @@ export default function App() {
               </Group>
               
               <RangeSlider
-                step={0.1}
+                step={0.01}
                 min={80}
                 max={210}
-                value={[minTempo, maxTempo]}
+                value={[Math.round(minTempo), Math.round(maxTempo)]}
                 onChange={(value) => {
                   setTempoRange(value);
                   setIsCustomRangeSelected(true);
