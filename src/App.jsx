@@ -1365,7 +1365,7 @@ export default function App() {
         addLog(`✅ Completed batch ${Math.floor(batchStart/playlistBatchSize) + 1}/${Math.ceil(sortedPlaylists.length/playlistBatchSize)} - ${processedPlaylistCount} playlists processed, ${selectedTracks.length} tracks selected`);
         
         // Check if we need to load more playlists after processing 80
-        if (processedPlaylistCount >= 80 && !hasRequestedMorePlaylists && sortedPlaylists.length < 200) {
+        if (!hasRequestedMorePlaylists && sortedPlaylists.length < 200) {
           hasRequestedMorePlaylists = true;
           addLog(`🔄 Processed 80+ playlists, loading more playlists for better selection...`);
           
