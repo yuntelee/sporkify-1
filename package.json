@@ -2,6 +2,7 @@
   "name": "sporkify-1",
   "private": true,
   "version": "0.0.0",
+  "homepage": "https://yuntelee.github.io/sporkify-1",
   "type": "module",
   "scripts": {
     "dev": "vite",
