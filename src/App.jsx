@@ -654,6 +654,7 @@ export default function App() {
   const [playlistOrder, setPlaylistOrder] = useState("recent"); // "recent" or "random"
   const [currentPage, setCurrentPage] = useState(0); // 0: Tempo, 1: Playlist Order, 2: Duration/Create
   const [playlistCreationStep, setPlaylistCreationStep] = useState("select"); // "select", "scanning", "review", "creating", "complete"
+  const [devOpen, setDevOpen] = useState(false); // track dev accordion open
   const [scannedTracks, setScannedTracks] = useState([]); // Tracks found during progressive scan
   const [totalScannedDuration, setTotalScannedDuration] = useState(0); // Total minutes scanned so far
   const [finalTrackSelection, setFinalTrackSelection] = useState([]); // Final tracks ready for playlist creation
@@ -1529,6 +1530,17 @@ export default function App() {
     // Function returns immediately, processing continues in background
   }
 
+  // Auto-trigger song search when entering final page (index 4) if in initial 'select' step
+  useEffect(() => {
+    if (currentPage === 4 && playlistCreationStep === 'select' && !loading) {
+      // Prevent duplicate auto triggers: basic guard by checking scannedTracks length
+      const safeToStart = scannedTracks.length === 0;
+      if (safeToStart) {
+        findMatchingSongs();
+      }
+    }
+  }, [currentPage, playlistCreationStep, loading, scannedTracks]);
+
   // Create playlist from reviewed tracks
   async function createPlaylistFromSelection() {
     if (!me || finalTrackSelection.length === 0) {
@@ -1678,14 +1690,20 @@ export default function App() {
   const totalFound = candidates.length;
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        <header className="flex items-center justify-between gap-4 mb-6">
+  <div className="h-screen bg-background" style={{ overflow: devOpen ? 'auto' : 'hidden', paddingBottom: devOpen ? '60vh' : '48px', transition: 'padding-bottom 0.25s ease' }}>
+      <div className="h-full max-w-5xl mx-auto px-4 py-4 flex flex-col">
+        <header className="flex items-center justify-between gap-4 mb-4 flex-shrink-0">
           <div className="flex items-center gap-3">
             <img 
               src={import.meta.env.BASE_URL + "image.png"}
               alt="Sporkify" 
-              className="w-8 h-8 sm:w-10 sm:h-10"
+              style={{ 
+                width: '100%',
+                height: '100%',
+                maxWidth: '40px',
+                maxHeight: '40px',
+                objectFit: 'contain'
+              }}
             />
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">Sporkify</h1>
           </div>
@@ -1771,28 +1789,120 @@ export default function App() {
         </header>
 
         {/* App Description */}
-        <div className="mb-6">
-          <Text size="md" className="mx-auto">
+        <div className="mb-3 flex-shrink-0">
+          <Text size="sm" className="mx-auto">
             <strong>Sporkify</strong> is an AI playlist generator for athletes who want music that matches their running cadence (strides per minute).
           </Text>
         </div>
 
+
+        {/* Sliding Pages Container */}
+        <div className="flex-1 min-h-0" style={{ 
+          overflow: 'hidden', 
+          width: '100%'
+        }}>
+          <div style={{ 
+            display: 'flex', 
+            width: '500%', 
+            height: '100%',
+            transform: `translateX(-${currentPage * 20}%)`,
+            transition: 'transform 0.3s ease-in-out'
+          }}>
+
+            {/* Page 0: Login */}
+            <div style={{ width: '20%', padding: '0 16px', height: '100%' }}>
+              <Card p="md" withBorder shadow="sm" style={{ height: '100%', overflow: 'auto', justifyContent: 'center', alignItems: 'center' }}>
+
+                {!isAuthed ? (
+                  <Stack gap="md" align="center">
+                    
+                    
+                    <Card
+                      style={{
+                        cursor: 'pointer',
+                        backgroundColor: 'var(--mantine-color-text)',
+                        transition: 'all 0.2s ease',
+                        border: 'none',
+                        maxWidth: '300px'
+                      }}
+                      onClick={startSpotifyAuth}
+                      p="lg"
+                      withBorder={false}
+                      className="hover:bg-[var(--mantine-color-gray-1)]"
+                    >
+                      <Group justify="center" gap="md">
+                        {/* Spotify Logo SVG */}
+                        <svg
+                          width="32"
+                          height="32"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          xmlns="http://www.w3.org/2000/svg"
+                        >
+                          <path
+                            d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.6 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"
+                            fill="var(--mantine-color-body)"
+                          />
+                        </svg>
+                        <Text 
+                          size="lg" 
+                          fw={600}
+                          c="var(--mantine-color-body)"
+                        >
+                          Connect to Spotify
+                        </Text>
+                      </Group>
+                    </Card>
+                    
+                  </Stack>
+                ) : (
+                  <Stack gap="md" align="center">
+                    <Text size="lg" ta="center" c="green">
+                      Connected to Spotify!
+                    </Text>
+                    
+                    <Group gap="md">
+                      <Text size="md">
+                        Logged in as: <strong>{me ? (me.display_name || me.id) : "Loading..."}</strong>
+                      </Text>
+                    </Group>
+                    
+                    <Text size="md" ta="center" c="dimmed">
+                      You can now proceed to set your tempo preferences
+                    </Text>
+                    
+                    <Button
+                      color="brand"
+                      size="lg"
+                      onClick={() => setCurrentPage(1)}
+                    >
+                      Continue to Tempo →
+                    </Button>
+                  </Stack>
+                )}
+              </Card>
+            </div>
+
+            {/* Page 1: Tempo Controls */}
+            <div style={{ width: '20%', padding: '0 16px', height: '100%' }}>
+              <Card p="md" withBorder shadow="sm" style={{ height: '100%', overflow: 'auto' }}>
+                <Title order={2} mb="md" ta="center">🎵 Strides per Minute (SPM/BPM)</Title>
+
        
 
-        {/* Tempo Controls */}
-        <div className="mb-6" p="lg" withBorder={false} shadow="none">
-          <Title order={3} mb="xs">Strides per Minute (SPM/BPM)</Title>
+
+    
 
           <Text size="sm" c="dimmed" fs="italic" mb="md">
               The animations display the approximate stride per tempo or ‘cadence’ of your run.
           </Text>
           
-          <Stack gap="md">
+          <Stack gap="md" style={{ height: '100%' }}>
 
             
             
             {/* Preset BPM Ranges */}
-            <Group gap="sm" grow>
+            <Group gap="sm" grow style={{ flex: 1 }}>
               {[
                 { 
                   min: 130, 
@@ -1820,32 +1930,41 @@ export default function App() {
                       backgroundColor: isSelected ? 'var(--mantine-color-brand-0)' : undefined,
                       borderColor: isSelected ? 'var(--mantine-color-brand-3)' : undefined,
                       borderWidth: isSelected ? 2 : 1,
-                      flex: 1
+                      flex: 1,
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'center'
                     }}
                     onClick={() => {
                       setTempoRange([range.min, range.max]);
                       setIsCustomRangeSelected(false);
                     }}
-                    p="md"
+                    p="sm"
                   >
                     {/* Lottie Animation */}
-                    <Center>
+                    <Center style={{ flex: 1 }}>
+                      <div style={{ 
+                            width: '100%',
+                            height: '100%'}}>
                         <DotLottieReact
                           src="https://lottie.host/c65134e9-4356-48a5-afb5-6c698694df6b/xAKy7LuIjG.lottie"
                           loop
                           autoplay
                           speed={range.min === 170 ? 1.5 : (range.min === 150 ? 1.2 : 1)}
-                          style={{ 
+                          style={{
                             width: '100%',
-                            maxWidth: '200px',
-                            height: 'auto',
-                            aspectRatio: '4 / 3',
-                            margin: '0 auto',
+                            height: '100%',
+                            maxWidth: 'none',
+                            maxHeight: 'none',
+                            objectFit: 'contain',
                             filter: isSelected ? 'none' : 'grayscale(100%)',
                             transform: isSelected ? 'scale(1)' : 'scale(0.7)',
                             transition: 'filter 0.3s ease, transform 0.3s ease'
                           }}
-                      />
+                        />
+                      </div>
+                        
                     </Center>
                     <Text 
                       size="sm" 
@@ -1867,17 +1986,18 @@ export default function App() {
                 cursor: 'pointer',
                 backgroundColor: isCustomRangeSelected ? 'var(--mantine-color-brand-0)' : undefined,
                 borderColor: isCustomRangeSelected ? 'var(--mantine-color-brand-3)' : undefined,
-                borderWidth: isCustomRangeSelected ? 2 : 1
+                borderWidth: isCustomRangeSelected ? 2 : 1,
+         
               }}
               onClick={() => {
                 setIsCustomRangeSelected(true);
               }}
-              p="md"
+              p="lg"
             >
               <Group justify="space-between" mb="sm">
                 <Text 
-                  size="sm" 
-                  fw={500}
+                  size="lg" 
+                  fw={600}
                   c={isCustomRangeSelected ? 'brand.7' : undefined}
                 >
                   Custom Range:
@@ -1885,6 +2005,7 @@ export default function App() {
                 <Chip 
                   color={isCustomRangeSelected ? "brand" : "gray"} 
                   variant={isCustomRangeSelected ? "filled" : "light"}
+                  size="md"
                 >
                   {Math.round(minTempo)} - {Math.round(maxTempo)} BPM
                 </Chip>
@@ -1903,12 +2024,16 @@ export default function App() {
               />
             </Card>
           </Stack>
-        </div>
+              </Card>
+            </div>
 
-        {/* Playlist Processing Order */}
-        <div className="mb-6" p="lg">
-          <Title order={3} mb="md">Search Order</Title>
-          <Group gap="sm" grow>
+            {/* Page 2: Search Order */}
+            <div style={{ width: '20%', padding: '0 16px', height: '100%' }}>
+              <Card p="md" withBorder shadow="sm" style={{ height: '100%', overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ height: '10%' }}>
+                  <Title order={2} mb="md" ta="center">📋 Search Order</Title>
+                </div>
+          <Group gap="sm" grow style={{ flex: 1 }}>
             <Card
               className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
               style={{
@@ -1917,40 +2042,41 @@ export default function App() {
                 borderColor: playlistOrder === "recent" ? 'var(--mantine-color-brand-3)' : undefined,
                 borderWidth: playlistOrder === "recent" ? 2 : 1,
                 flex: 1,
-                minHeight: '120px',
+                height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'space-between'
+                  justifyContent: 'center'
               }}
               onClick={() => setPlaylistOrder("recent")}
               p="sm"
             >
               {/* Recent Image */}
-              <Center mb="xs">
-                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100px', height: '100px' }}>
-                  <img 
-                    src={import.meta.env.BASE_URL + "Adobe Express - file.png"}
-                    alt="Most Recently Added" 
-                    style={{ 
-                      width: '60px',
-                      height: '60px',
-                      objectFit: 'contain',
-                      filter: playlistOrder === "recent" ? 'none' : 'grayscale(100%)',
-                      transition: 'filter 0.3s ease, transform 0.3s ease'
-                    }}
-                  />
-                </div>
-              </Center>
-              <div>
+                <Center mb="xs" style={{ flex: 1 }}>
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <img 
+                      src={import.meta.env.BASE_URL + "Adobe Express - file.png"}
+                      alt="Most Recently Added" 
+                      style={{ 
+                        width: '70%',
+                        height: '70%',
+                        maxWidth: '160px',
+                        maxHeight: '160px',
+                        objectFit: 'contain',
+                        filter: playlistOrder === "recent" ? 'none' : 'grayscale(100%)',
+                        transform: playlistOrder === "recent" ? 'scale(1)' : 'scale(0.85)',
+                        transition: 'filter 0.3s ease, transform 0.3s ease'
+                      }}
+                    />
+                  </div>
+                </Center>
                 <Text 
-                  size="md" 
+                  size="lg" 
                   fw={500}
                   c={playlistOrder === "recent" ? 'brand.7' : undefined}
                   ta="center"
                 >
                   Most Recently Added
                 </Text>
-              </div>
             </Card>
             <Card
               className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
@@ -1960,87 +2086,91 @@ export default function App() {
                 borderColor: playlistOrder === "random" ? 'var(--mantine-color-brand-3)' : undefined,
                 borderWidth: playlistOrder === "random" ? 2 : 1,
                 flex: 1,
-                minHeight: '120px',
+                height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'space-between'
+                justifyContent: 'center'
               }}
               onClick={() => setPlaylistOrder("random")}
               p="sm"
             >
               {/* Lottie Animation */}
-              <Center mb="xs">
-                <DotLottieReact
-                  src="https://lottie.host/5917647c-35af-4a54-9444-c3992b645ea3/WrdSEbt9KY.lottie"
-                  loop
-                  autoplay
-                  style={{ 
-                    width: '100px',
-                    height: '100px',
-                    filter: playlistOrder === "random" ? 'none' : 'grayscale(100%)',
-                    transition: 'filter 0.3s ease, transform 0.3s ease'
-                  }}
-                />
-              </Center>
-              <div>
+                <Center mb="xs" style={{ flex: 1 }}>
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <DotLottieReact
+                      src="https://lottie.host/5917647c-35af-4a54-9444-c3992b645ea3/WrdSEbt9KY.lottie"
+                      loop
+                      autoplay
+                      style={{ 
+                        width: '70%',
+                        height: '70%',
+                        maxWidth: '160px',
+                        maxHeight: '160px',
+                        objectFit: 'contain',
+                        filter: playlistOrder === "random" ? 'none' : 'grayscale(100%)',
+                        transform: playlistOrder === "random" ? 'scale(1)' : 'scale(0.85)',
+                        transition: 'filter 0.3s ease, transform 0.3s ease'
+                      }}
+                    />
+                  </div>
+                </Center>
                 <Text 
-                  size="md" 
+                  size="lg" 
                   fw={500}
                   c={playlistOrder === "random" ? 'brand.7' : undefined}
                   ta="center"
                 >
                   Randomize
                 </Text>
-
-              </div>
             </Card>
           </Group>
-        </div>
-
-        {/* Playlist Length */}
-        <div className="mb-6" p="lg">
-          <Title order={3} mb="md">Playlist Length</Title>
-          <Group gap="sm" grow>
-            {[15, 30, 60].map((duration) => (
-              <Card
-                key={duration}
-                className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
-                style={{
-                  cursor: 'pointer',
-                  backgroundColor: selectedDuration === duration ? 'var(--mantine-color-brand-0)' : undefined,
-                  borderColor: selectedDuration === duration ? 'var(--mantine-color-brand-3)' : undefined,
-                  borderWidth: selectedDuration === duration ? 2 : 1,
-                  flex: 1
-                }}
-                onClick={() => setSelectedDuration(duration)}
-                p="md"
-              >
-                <Text 
-                  size="sm" 
-                  fw={500}
-                  c={selectedDuration === duration ? 'brand.7' : undefined}
-                  ta="center"
-                >
-                  {duration} minutes
-                </Text>
               </Card>
-            ))}
-          </Group>
-        </div>
+            </div>
 
-        {/* Create Playlist */}
-        <div className="mb-6" p="lg">
-          <Title order={3} mb="md">Create Playlist</Title>
-          <Stack gap="md">
-            {(playlistCreationStep === "review" || playlistCreationStep === "creating" || playlistCreationStep === "complete") && (
-              <TextInput
-                label="Playlist Name"
-                placeholder={`My ${Math.round(minTempo)}-${Math.round(maxTempo)} BPM Mix`}
-                value={newPlaylistName}
-                onChange={(e) => setNewPlaylistName(e.target.value)}
-                required
-              />
-            )}
+            {/* Page 3: Playlist Length */}
+            <div style={{ width: '20%', padding: '0 16px', height: '100%' }}>
+              <Card p="md" withBorder shadow="sm" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ height: '10%' }}>
+                  <Title order={2} mb="md" ta="center">⏱️ Playlist Length</Title>
+                </div>
+                <Stack gap="sm" style={{ flex: 1, minHeight: 0 }}>
+                  {[15, 30, 60].map((duration) => (
+                    <Card
+                      key={duration}
+                      className="transition-all hover:bg-[var(--mantine-color-gray-1)]"
+                      style={{
+                        cursor: 'pointer',
+                        backgroundColor: selectedDuration === duration ? 'var(--mantine-color-brand-0)' : undefined,
+                        borderColor: selectedDuration === duration ? 'var(--mantine-color-brand-3)' : undefined,
+                        borderWidth: selectedDuration === duration ? 2 : 1,
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                      onClick={() => setSelectedDuration(duration)}
+                      p="md"
+                    >
+                      <Text 
+                        size="lg" 
+                        fw={700}
+                        c={selectedDuration === duration ? 'brand.7' : undefined}
+                        ta="center"
+                        style={{ letterSpacing: '0.5px' }}
+                      >
+                        {duration} minutes
+                      </Text>
+                    </Card>
+                  ))}
+                </Stack>
+              </Card>
+            </div>
+
+            {/* Page 4: Create Playlist */}
+            <div style={{ width: '20%', padding: '0 16px', height: '100%' }}>
+              <Card p="md" withBorder shadow="sm" style={{ height: '100%', overflow: 'auto' }}>
+                <Stack gap="md">
+           
             
             {playlistCreationStep === "select" && (
               <div className="space-y-4">
@@ -2175,17 +2305,16 @@ export default function App() {
                   </div>
                 </div>
                 
-                <Card p="md">
+                <Card p="md" style={{ display: 'flex', flexDirection: 'column', height: '420px' }}>
                   <Text size="sm" fw={500} mb="md">Selected Songs:</Text>
-                  <div style={{ height: '400px', overflow: 'hidden' }}>
-                    <ScrollArea 
-                      h="100%" 
-                      scrollbarSize={8} 
-                      offsetScrollbars 
-                      scrollHideDelay={500}
-                      type="always"
-                    >
-                      <Stack gap="sm" pb="md">
+                  <ScrollArea 
+                    style={{ flex: 1, minHeight: 0 }}
+                    scrollbarSize={8} 
+                    offsetScrollbars 
+                    scrollHideDelay={500}
+                    type="always"
+                  >
+                    <Stack gap="sm" pb="md">
                         {finalTrackSelection.map((track, i) => (
                           <Paper key={track.id} p="md" style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
                             <Group justify="space-between" gap="md">
@@ -2253,9 +2382,8 @@ export default function App() {
                             </Group>
                           </Paper>
                         ))}
-                      </Stack>
-                    </ScrollArea>
-                  </div>
+                    </Stack>
+                  </ScrollArea>
                 </Card>
                 
                 <TextInput
@@ -2364,13 +2492,86 @@ export default function App() {
               </div>
             )}
           </Stack>
+              </Card>
+            </div>
+
+          </div>
         </div>
 
-        {/* Debug Sections Accordion */}
-        <Accordion mb="md" variant="separated">
-          <Accordion.Item value="debug-info">
-            <Accordion.Control>Debug Information</Accordion.Control>
-            <Accordion.Panel>
+        {/* Navigation Controls */}
+        <div className="mt-4 mb-4 flex-shrink-0">
+          <Group justify="center" gap="lg" align="stretch">
+            <Button
+              variant="filled"
+              color="brand"
+              size="lg"
+              radius="md"
+              style={{ minWidth: '180px', fontWeight: 600, fontSize: '16px', boxShadow: '0 4px 10px -2px rgba(0,0,0,0.25)' }}
+              onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+              disabled={currentPage === 0}
+            >
+              ← Previous
+            </Button>
+            <Card withBorder p="sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '160px', background: 'var(--mantine-color-gray-0)' }}>
+              <Text size="sm" c="dimmed" fw={500}>
+                Page {currentPage + 1} of 5
+              </Text>
+            </Card>
+            <Button
+              variant="filled"
+              color="brand"
+              size="lg"
+              radius="md"
+              style={{ minWidth: '180px', fontWeight: 600, fontSize: '16px', boxShadow: '0 4px 10px -2px rgba(0,0,0,0.25)' }}
+              onClick={() => setCurrentPage(Math.min(4, currentPage + 1))}
+              disabled={currentPage === 4}
+            >
+              Next →
+            </Button>
+          </Group>
+        </div>
+
+        
+      </div>
+
+      {/* Debug Sections Panel - Fixed bottom overlay */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50, pointerEvents: 'auto' }}>
+        <div className="mx-auto w-full max-w-5xl px-4" style={{
+          height: devOpen ? '60vh' : '40px',
+          transition: 'height 0.3s ease',
+          background: 'var(--mantine-color-body)',
+          borderTop: '1px solid var(--mantine-color-gray-3)',
+          boxShadow: '0 -4px 12px -2px rgba(0,0,0,0.15)',
+          borderTopLeftRadius: '12px',
+          borderTopRightRadius: '12px',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          <button
+            onClick={() => setDevOpen(o => !o)}
+            style={{
+              height: '40px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '13px',
+              fontWeight: 600,
+              padding: '0 12px',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--mantine-color-text)'
+            }}
+          >
+            <span style={{transform: devOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.25s'}}>{devOpen ? '▾' : '▸'}</span>
+            <span>Debug Information ({devOpen ? 'open' : 'closed'})</span>
+          </button>
+          <div style={{ flex: 1, overflow: 'auto', padding: devOpen ? '8px 0 12px' : 0 }}>
+            {devOpen && (
+              <Accordion variant="separated" value={'debug-info'}>
+                <Accordion.Item value="debug-info">
+                  <Accordion.Panel>
               <Stack gap="md">
               <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 text-xs font-mono shadow-lg">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
@@ -2788,12 +2989,15 @@ export default function App() {
           </div>
         </section>
               </Stack>
-            </Accordion.Panel>
-          </Accordion.Item>
-        </Accordion>
+                  </Accordion.Panel>
+                </Accordion.Item>
+              </Accordion>
+            )}
+          </div>
+        </div>
+      </div>
 
         
-      </div>
     </div>
   );
 }
