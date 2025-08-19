@@ -1755,7 +1755,6 @@ export default function App() {
                   border: 'none',
                   maxWidth: '40vw',
                   boxShadow: 'none',
-                  border: 'none'
                 }}
                 onClick={startSpotifyAuth}
                 p="sm"
