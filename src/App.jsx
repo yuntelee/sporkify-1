@@ -977,7 +977,7 @@ export default function App() {
       
       // Long delay between playlists
       if (i < ids.length - 1) {
-        await sleep(2000); // 2 seconds between playlists
+        await sleep(1000); // 2 seconds between playlists
       }
     }
 
@@ -1340,7 +1340,7 @@ export default function App() {
             processedPlaylistCount++;
             
             // Set loading to false after 20 playlists have been processed
-            if (processedPlaylistCount === 20 && !firstPlaylistLoaded) {
+            if (processedPlaylistCount > 0 && !firstPlaylistLoaded) {
               firstPlaylistLoaded = true;
               setLoading(false);
               addLog(`✅ 20 playlists processed - Find Songs button is now responsive!`);
