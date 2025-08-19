@@ -1751,10 +1751,11 @@ export default function App() {
               <Card
                 style={{
                   cursor: 'pointer',
-                  backgroundColor: 'var(--mantine-color-text)',
                   transition: 'all 0.2s ease',
                   border: 'none',
-                  maxWidth: '40vw'
+                  maxWidth: '40vw',
+                  boxShadow: 'none',
+                  border: 'none'
                 }}
                 onClick={startSpotifyAuth}
                 p="sm"
@@ -1763,25 +1764,7 @@ export default function App() {
               >
                 <Group justify="center" gap="xs">
                   {/* Spotify Logo SVG */}
-                  <svg
-                    width="25"
-                    height="25"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    <path
-                      d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.6 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"
-                      fill="var(--mantine-color-body)"
-                    />
-                  </svg>
-                  <Text 
-                    size="md" 
-                    fw={500}
-                    c="var(--mantine-color-body)"
-                  >
-                    Connect to Spotify
-                  </Text>
+                  
                 </Group>
               </Card>
             )}
@@ -1810,8 +1793,8 @@ export default function App() {
           }}>
 
             {/* Page 0: Login */}
-            <div style={{ width: '20%', padding: '0 16px', height: '100%' }}>
-              <Card p="md" withBorder shadow="sm" style={{ height: '100%', overflow: 'auto', justifyContent: 'center', alignItems: 'center' }}>
+            <div style={{ width: '20%', height: '100%' }}>
+              <Card p="md" style={{ boxShadow: 'none', border: 'none', height: '100%', overflow: 'auto', justifyContent: 'center', alignItems: 'center' }}>
 
                 {!isAuthed ? (
                   <Stack gap="md" align="center">
@@ -1884,8 +1867,8 @@ export default function App() {
             </div>
 
             {/* Page 1: Tempo Controls */}
-            <div style={{ width: '20%', padding: '0 16px', height: '100%' }}>
-              <Card p="md" withBorder shadow="sm" style={{ height: '100%', overflow: 'auto' }}>
+            <div style={{ width: '20%',  height: '100%' }}>
+              <Card p="md" style={{  boxShadow: 'none', border: 'none',height: '100%', overflow: 'auto' }}>
                 <Title order={2} mb="md" ta="center">🎵 Strides per Minute (SPM/BPM)</Title>
 
        
@@ -2028,8 +2011,8 @@ export default function App() {
             </div>
 
             {/* Page 2: Search Order */}
-            <div style={{ width: '20%', padding: '0 16px', height: '100%' }}>
-              <Card p="md" withBorder shadow="sm" style={{ height: '100%', overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ width: '20%',  height: '100%' }}>
+              <Card p="md" style={{ boxShadow: 'none', border: 'none',height: '100%', overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ height: '10%' }}>
                   <Title order={2} mb="md" ta="center">📋 Search Order</Title>
                 </div>
@@ -2128,8 +2111,8 @@ export default function App() {
             </div>
 
             {/* Page 3: Playlist Length */}
-            <div style={{ width: '20%', padding: '0 16px', height: '100%' }}>
-              <Card p="md" withBorder shadow="sm" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ width: '20%',  height: '100%' }}>
+              <Card p="md" style={{ boxShadow: 'none', border: 'none', height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ height: '10%' }}>
                   <Title order={2} mb="md" ta="center">⏱️ Playlist Length</Title>
                 </div>
@@ -2168,7 +2151,7 @@ export default function App() {
 
             {/* Page 4: Create Playlist */}
             <div style={{ width: '20%', padding: '0 16px', height: '100%' }}>
-              <Card p="md" withBorder shadow="sm" style={{ height: '100%', overflow: 'auto' }}>
+              <Card p="md" style={{ boxShadow: 'none', border: 'none',height: '100%', overflow: 'auto' }}>
                 <Stack gap="md">
            
             
@@ -2506,13 +2489,12 @@ export default function App() {
               color="brand"
               size="lg"
               radius="md"
-              style={{ minWidth: '180px', fontWeight: 600, fontSize: '16px', boxShadow: '0 4px 10px -2px rgba(0,0,0,0.25)' }}
               onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
               disabled={currentPage === 0}
             >
               ← Previous
             </Button>
-            <Card withBorder p="sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '160px', background: 'var(--mantine-color-gray-0)' }}>
+            <Card p="sm" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--mantine-color-gray-0)' }}>
               <Text size="sm" c="dimmed" fw={500}>
                 Page {currentPage + 1} of 5
               </Text>
@@ -2522,7 +2504,7 @@ export default function App() {
               color="brand"
               size="lg"
               radius="md"
-              style={{ minWidth: '180px', fontWeight: 600, fontSize: '16px', boxShadow: '0 4px 10px -2px rgba(0,0,0,0.25)' }}
+          
               onClick={() => setCurrentPage(Math.min(4, currentPage + 1))}
               disabled={currentPage === 4}
             >
@@ -2541,7 +2523,6 @@ export default function App() {
           transition: 'height 0.3s ease',
           background: 'var(--mantine-color-body)',
           borderTop: '1px solid var(--mantine-color-gray-3)',
-          boxShadow: '0 -4px 12px -2px rgba(0,0,0,0.15)',
           borderTopLeftRadius: '12px',
           borderTopRightRadius: '12px',
           overflow: 'hidden',
@@ -2573,7 +2554,7 @@ export default function App() {
                 <Accordion.Item value="debug-info">
                   <Accordion.Panel>
               <Stack gap="md">
-              <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 text-xs font-mono shadow-lg">
+              <section className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-xl p-4 text-xs font-mono">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
             <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50">
               <span className="text-slate-300 font-medium">Access Token:</span><br/>
@@ -2623,7 +2604,7 @@ export default function App() {
         </section>
 
         
-          <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+          <section className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-xl p-4 mb-6 text-xs font-mono">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-bold text-slate-100">🔍 Gemini AI Live Responses with Search Grounding ({geminiLogs.length})</h2>
               <div className="flex items-center gap-3">
@@ -2776,7 +2757,7 @@ export default function App() {
 
 
         {/* Settings */}
-        <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+        <section className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-xl p-4 mb-6 text-xs font-mono">
           <div className="mb-4">
             <h2 className="text-lg font-bold mb-3 text-slate-100">🔧 API Configuration</h2>
             <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-600/50 mb-3">
@@ -2834,7 +2815,7 @@ export default function App() {
         
 
         {/* Debug: Loaded Playlists and Songs Side by Side */}
-        <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+        <section className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-xl p-4 mb-6 text-xs font-mono">
           <div className="mb-4">
             <h2 className="text-lg font-bold text-slate-100">📊 Loaded Spotify Data</h2>
           </div>
@@ -2911,7 +2892,7 @@ export default function App() {
 
         {/* Debug: All Pulled Tracks */}
         {allPulledTracks.length > 0 && (
-          <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+          <section className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-xl p-4 mb-6 text-xs font-mono">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-bold text-slate-100">📋 All Pulled Tracks ({allPulledTracks.length})</h2>
               <div className="bg-slate-900/40 rounded-lg p-2 border border-slate-600/50">
@@ -2938,7 +2919,7 @@ export default function App() {
 
         {/* Debug: All Analyzed Tracks */}
         {allAnalyzedTracks.length > 0 && (
-          <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+          <section className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-xl p-4 mb-6 text-xs font-mono">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-bold text-slate-100">🎵 All Analyzed Tracks ({allAnalyzedTracks.length})</h2>
               <div className="bg-slate-900/40 rounded-lg p-2 border border-slate-600/50">
@@ -2978,7 +2959,7 @@ export default function App() {
         )}
 
         {/* Activity Log */}
-        <section className="bg-gradient-to-r from-slate-800 to-slate-700 border border-slate-600 rounded-xl p-4 mb-6 text-xs font-mono shadow-lg">
+        <section className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-xl p-4 mb-6 text-xs font-mono">
           <h2 className="text-lg font-bold mb-3 text-slate-100">Activity</h2>
           <div className="space-y-2 max-h-48 overflow-auto">
             {log.map((l, i) => (
