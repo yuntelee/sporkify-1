@@ -2036,19 +2036,16 @@ export default function App() {
                 <Center mb="xs" style={{ flex: 1 }}>
                   <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <img 
-                      src={import.meta.env.BASE_URL + "Adobe Express - file.png"}
-                      alt="Most Recently Added" 
-                      style={{ 
-                        width: '70%',
-                        height: '70%',
-                        maxWidth: '160px',
-                        maxHeight: '160px',
-                        objectFit: 'contain',
-                        filter: playlistOrder === "recent" ? 'none' : 'grayscale(100%)',
-                        transform: playlistOrder === "recent" ? 'scale(1)' : 'scale(0.85)',
-                        transition: 'filter 0.3s ease, transform 0.3s ease'
-                      }}
-                    />
+              src={import.meta.env.BASE_URL + "calendar.png"}
+              alt="Sporkify" 
+              style={{ 
+                width: '100%',
+                height: '100%',
+                maxWidth: '180px',
+                maxHeight: '180px',
+                objectFit: 'contain'
+              }}
+            />
                   </div>
                 </Center>
                 <Text 
